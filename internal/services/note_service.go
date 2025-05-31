@@ -12,6 +12,16 @@ type NoteService struct {
 	db *gorm.DB
 }
 
+type UserStats struct {
+	TotalNotes      int64 `json:"total_notes"`
+	PublicNotes     int64 `json:"public_notes"`
+	PrivateNotes    int64 `json:"private_notes"`
+	TotalCategories int64 `json:"total_categories"`
+	TotalTags       int64 `json:"total_tags"`
+	TotalViews      int64 `json:"total_views"`
+}
+
+
 func NewNoteService(db *gorm.DB) *NoteService {
 	return &NoteService{db: db}
 }
@@ -20,10 +30,8 @@ func (s *NoteService) GetNotes(userID uint, req *models.NoteListRequest) ([]mode
 	var notes []models.Note
 	var total int64
 
-	// 构建查询
 	query := s.db.Model(&models.Note{}).Where("user_id = ?", userID)
 
-	// 添加条件
 	if req.CategoryID != nil {
 		query = query.Where("category_id = ?", *req.CategoryID)
 	}
@@ -36,16 +44,13 @@ func (s *NoteService) GetNotes(userID uint, req *models.NoteListRequest) ([]mode
 		query = query.Joins("JOIN note_tags ON notes.id = note_tags.note_id").Where("note_tags.tag_id = ?", *req.TagID)
 	}
 
-	// 计算总数
 	if err := query.Count(&total).Error; err != nil {
 		return nil, nil, err
 	}
 
-	// 分页
 	offset := (req.Page - 1) * req.Limit
 	pages := int(math.Ceil(float64(total) / float64(req.Limit)))
 
-	// 排序
 	orderBy := "created_at DESC"
 	if req.Sort != "" {
 		direction := "DESC"
@@ -55,7 +60,6 @@ func (s *NoteService) GetNotes(userID uint, req *models.NoteListRequest) ([]mode
 		orderBy = fmt.Sprintf("%s %s", req.Sort, direction)
 	}
 
-	// 查询数据
 	err := query.Preload("Category").Preload("Tags").Preload("Attachments").
 		Order(orderBy).Limit(req.Limit).Offset(offset).Find(&notes).Error
 	if err != nil {
@@ -93,14 +97,11 @@ func (s *NoteService) CreateNote(userID uint, req *models.NoteCreateRequest) (*m
 		ViewCount:   0,
 	}
 
-	// 使用事务
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		// 创建笔记
 		if err := tx.Create(&note).Error; err != nil {
 			return err
 		}
 
-		// 添加标签关联
 		if len(req.TagIDs) > 0 {
 			var tags []models.Tag
 			if err := tx.Where("id IN ? AND user_id = ?", req.TagIDs, userID).Find(&tags).Error; err != nil {
@@ -118,7 +119,6 @@ func (s *NoteService) CreateNote(userID uint, req *models.NoteCreateRequest) (*m
 		return nil, err
 	}
 
-	// 重新加载关联数据
 	s.db.Preload("Category").Preload("Tags").Preload("Attachments").First(&note, note.ID)
 
 	return &note, nil
@@ -127,14 +127,11 @@ func (s *NoteService) CreateNote(userID uint, req *models.NoteCreateRequest) (*m
 func (s *NoteService) UpdateNote(noteID, userID uint, req *models.NoteUpdateRequest) (*models.Note, error) {
 	var note models.Note
 	
-	// 先查找笔记
 	if err := s.db.Where("id = ? AND user_id = ?", noteID, userID).First(&note).Error; err != nil {
 		return nil, err
 	}
 
-	// 使用事务更新
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		// 更新笔记基本信息
 		updates := map[string]interface{}{
 			"title":       req.Title,
 			"content":     req.Content,
@@ -146,7 +143,6 @@ func (s *NoteService) UpdateNote(noteID, userID uint, req *models.NoteUpdateRequ
 			return err
 		}
 
-		// 更新标签关联
 		if err := tx.Model(&note).Association("Tags").Clear(); err != nil {
 			return err
 		}
@@ -168,7 +164,6 @@ func (s *NoteService) UpdateNote(noteID, userID uint, req *models.NoteUpdateRequ
 		return nil, err
 	}
 
-	// 重新加载关联数据
 	s.db.Preload("Category").Preload("Tags").Preload("Attachments").First(&note, note.ID)
 
 	return &note, nil
@@ -183,4 +178,34 @@ func (s *NoteService) DeleteNote(noteID, userID uint) error {
 		return fmt.Errorf("笔记不存在或无权限删除")
 	}
 	return nil
+}
+
+func (s *NoteService) GetUserStats(userID uint) (*UserStats, error) {
+	var stats UserStats
+
+	if err := s.db.Model(&models.Note{}).Where("user_id = ?", userID).Count(&stats.TotalNotes).Error; err != nil {
+		return nil, err
+	}
+
+	if err := s.db.Model(&models.Note{}).Where("user_id = ? AND is_public = ?", userID, true).Count(&stats.PublicNotes).Error; err != nil {
+		return nil, err
+	}
+
+	if err := s.db.Model(&models.Note{}).Where("user_id = ? AND is_public = ?", userID, false).Count(&stats.PrivateNotes).Error; err != nil {
+		return nil, err
+	}
+
+	if err := s.db.Model(&models.Category{}).Where("user_id = ?", userID).Count(&stats.TotalCategories).Error; err != nil {
+		return nil, err
+	}
+
+	if err := s.db.Model(&models.Tag{}).Where("user_id = ?", userID).Count(&stats.TotalTags).Error; err != nil {
+		return nil, err
+	}
+
+	if err := s.db.Model(&models.Note{}).Where("user_id = ?", userID).Select("COALESCE(SUM(view_count), 0)").Scan(&stats.TotalViews).Error; err != nil {
+		return nil, err
+	}
+
+	return &stats, nil
 }

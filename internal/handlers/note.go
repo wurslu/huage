@@ -158,3 +158,15 @@ func (h *NoteHandler) DeleteNote(c *gin.Context) {
 
 	utils.SuccessWithMessage(c, "删除成功", nil)
 }
+
+func (h *NoteHandler) GetUserStats(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+
+	stats, err := h.noteService.GetUserStats(userID.(uint))
+	if err != nil {
+		utils.InternalError(c)
+		return
+	}
+
+	utils.Success(c, stats)
+}

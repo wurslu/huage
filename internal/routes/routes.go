@@ -29,6 +29,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	noteHandler := handlers.NewNoteHandler(noteService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	tagHandler := handlers.NewTagHandler(tagService)
+	shareHandler := handlers.NewShareHandler(db)
 
 	api := router.Group("/api")
 
@@ -39,7 +40,6 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			auth.POST("/register", authHandler.Register)
 			auth.POST("/login", authHandler.Login)
 		}
-
 	}
 
 	protected := api.Group("")
@@ -55,10 +55,14 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		{
 			notes.GET("", noteHandler.GetNotes)
 			notes.POST("", noteHandler.CreateNote)
+			notes.GET("/stats", noteHandler.GetUserStats)
 			notes.GET("/:id", noteHandler.GetNote)
 			notes.PUT("/:id", noteHandler.UpdateNote)
 			notes.DELETE("/:id", noteHandler.DeleteNote)
 			
+			notes.POST("/:id/share", shareHandler.CreateShareLink)
+			notes.GET("/:id/share", shareHandler.GetShareInfo)
+			notes.DELETE("/:id/share", shareHandler.DeleteShareLink)
 		}
 
 		categories := protected.Group("/categories")
@@ -76,9 +80,6 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			tags.PUT("/:id", tagHandler.UpdateTag)
 			tags.DELETE("/:id", tagHandler.DeleteTag)
 		}
-
-
-
 	}
 
 	admin := api.Group("/admin")
@@ -87,9 +88,11 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	{
 	}
 
+	router.GET("/public/notes/:code", shareHandler.GetPublicNote)
+
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"status": "ok",
+			"status":  "ok",
 			"message": "服务运行正常",
 		})
 	})

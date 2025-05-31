@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"notes-backend/internal/models"
+	"notes-backend/internal/services"
 	"notes-backend/internal/utils"
 	"strconv"
 	"time"
@@ -17,13 +18,15 @@ import (
 
 type ShareHandler struct {
 	db        *gorm.DB
+	noteService *services.NoteService 
 	validator *validator.Validate
 }
 
-func NewShareHandler(db *gorm.DB) *ShareHandler {
+func NewShareHandler(db *gorm.DB, noteService *services.NoteService) *ShareHandler {
 	return &ShareHandler{
-		db:        db,
-		validator: validator.New(),
+		db:          db,
+		noteService: noteService, 
+		validator:   validator.New(),
 	}
 }
 
@@ -196,22 +199,24 @@ func (h *ShareHandler) GetPublicNote(c *gin.Context) {
 		}
 	}
 
+	// 准备访问者信息
+	viewerInfo := &models.ViewerInfo{
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+		Referer:   c.GetHeader("Referer"),
+	}
+
+	// 获取笔记并记录浏览量
+	note, err := h.noteService.GetPublicNoteByID(shareLink.NoteID, viewerInfo)
+	if err != nil {
+		utils.NotFound(c, "笔记不存在")
+		return
+	}
+
+	// 更新分享链接访问次数
 	h.db.Model(&shareLink).Update("visit_count", gorm.Expr("visit_count + 1"))
 
-	clientIP := c.ClientIP()
-	userAgent := c.GetHeader("User-Agent")
-	referer := c.GetHeader("Referer")
-	
-	visit := models.NoteVisit{
-		NoteID:    shareLink.NoteID,
-		VisitorIP: &clientIP,
-		UserAgent: &userAgent,
-		Referer:   &referer,
-		VisitedAt: time.Now(),
-	}
-	h.db.Create(&visit)
-
-	utils.Success(c, shareLink.Note)
+	utils.Success(c, note)
 }
 
 func generateRandomString(length int) (string, error) {

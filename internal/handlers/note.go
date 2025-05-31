@@ -1,11 +1,15 @@
+// internal/handlers/note.go - 完整的修复版本
 package handlers
 
 import (
+	"crypto/md5"
+	"fmt"
 	"net/http"
 	"notes-backend/internal/models"
 	"notes-backend/internal/services"
 	"notes-backend/internal/utils"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
@@ -61,6 +65,7 @@ func (h *NoteHandler) GetNotes(c *gin.Context) {
 	})
 }
 
+// GetNote 获取单个笔记并记录浏览量
 func (h *NoteHandler) GetNote(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	noteIDStr := c.Param("id")
@@ -77,7 +82,24 @@ func (h *NoteHandler) GetNote(c *gin.Context) {
 		return
 	}
 
+	// 记录浏览量（避免作者自己查看时计数）
+	go h.recordView(uint(noteID), userID.(uint), c)
+
 	utils.Success(c, note)
+}
+
+// recordView 记录浏览量（异步处理，避免影响响应速度）
+func (h *NoteHandler) recordView(noteID, viewerID uint, c *gin.Context) {
+	clientIP := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+	
+	// 创建唯一标识符（基于用户ID、IP、笔记ID和时间窗口）
+	timeWindow := time.Now().Format("2006-01-02-15") // 1小时时间窗口
+	identifier := fmt.Sprintf("%d-%s-%d-%s", viewerID, clientIP, noteID, timeWindow)
+	hash := fmt.Sprintf("%x", md5.Sum([]byte(identifier)))
+
+	// 记录浏览量
+	h.noteService.RecordView(noteID, viewerID, clientIP, userAgent, hash)
 }
 
 func (h *NoteHandler) CreateNote(c *gin.Context) {

@@ -18,10 +18,10 @@ func NewCategoryService(db *gorm.DB) *CategoryService {
 func (s *CategoryService) GetCategoriesTree(userID uint) ([]models.Category, error) {
 	var allCategories []models.Category
 	
-	// 获取所有分类
-	err := s.db.Select("categories.*, COUNT(notes.id) as note_count").
-		Joins("LEFT JOIN notes ON categories.id = notes.category_id").
-		Where("categories.user_id = ?", userID).
+	err := s.db.Table("categories").
+		Select("categories.*, COUNT(notes.id) as note_count").
+		Joins("LEFT JOIN notes ON categories.id = notes.category_id AND notes.deleted_at IS NULL").
+		Where("categories.user_id = ? AND categories.deleted_at IS NULL", userID).
 		Group("categories.id").
 		Order("categories.sort_order, categories.name").
 		Find(&allCategories).Error

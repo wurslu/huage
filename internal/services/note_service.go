@@ -1,9 +1,11 @@
 package services
 
 import (
+	"crypto/md5"
 	"fmt"
 	"math"
 	"notes-backend/internal/models"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -20,7 +22,6 @@ type UserStats struct {
 	TotalTags       int64 `json:"total_tags"`
 	TotalViews      int64 `json:"total_views"`
 }
-
 
 func NewNoteService(db *gorm.DB) *NoteService {
 	return &NoteService{db: db}
@@ -74,16 +75,6 @@ func (s *NoteService) GetNotes(userID uint, req *models.NoteListRequest) ([]mode
 	}
 
 	return notes, pagination, nil
-}
-
-func (s *NoteService) GetNoteByID(noteID, userID uint) (*models.Note, error) {
-	var note models.Note
-	err := s.db.Preload("Category").Preload("Tags").Preload("Attachments").
-		Where("id = ? AND user_id = ?", noteID, userID).First(&note).Error
-	if err != nil {
-		return nil, err
-	}
-	return &note, nil
 }
 
 func (s *NoteService) CreateNote(userID uint, req *models.NoteCreateRequest) (*models.Note, error) {
@@ -208,4 +199,110 @@ func (s *NoteService) GetUserStats(userID uint) (*UserStats, error) {
 	}
 
 	return &stats, nil
+}
+
+func (s *NoteService) RecordView(noteID, viewerID uint, clientIP, userAgent, viewHash string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// 检查笔记是否存在且不是作者本人查看
+		var note models.Note
+		if err := tx.Where("id = ?", noteID).First(&note).Error; err != nil {
+			return err
+		}
+
+		// 如果是作者本人查看，不计入浏览量
+		if note.UserID == viewerID {
+			return nil
+		}
+
+		// 检查在时间窗口内是否已经记录过（防止重复刷新计数）
+		var existingVisit models.NoteVisit
+		oneHourAgo := time.Now().Add(-1 * time.Hour)
+		
+		err := tx.Where("note_id = ? AND visitor_ip = ? AND visited_at > ? AND view_hash = ?", 
+			noteID, clientIP, oneHourAgo, viewHash).First(&existingVisit).Error
+		
+		if err == nil {
+			// 已存在相同访问记录，不重复计数
+			return nil
+		}
+
+		// 创建新的访问记录
+		visit := models.NoteVisit{
+			NoteID:    noteID,
+			ViewerID:  &viewerID,
+			VisitorIP: &clientIP,
+			UserAgent: &userAgent,
+			ViewHash:  &viewHash,
+			VisitedAt: time.Now(),
+		}
+
+		if err := tx.Create(&visit).Error; err != nil {
+			return err
+		}
+
+		// 更新笔记的浏览次数
+		return tx.Model(&note).Update("view_count", gorm.Expr("view_count + 1")).Error
+	})
+}
+
+// GetNoteByID 获取单个笔记
+func (s *NoteService) GetNoteByID(noteID, userID uint) (*models.Note, error) {
+	var note models.Note
+	err := s.db.Preload("Category").Preload("Tags").Preload("Attachments").
+		Where("id = ? AND user_id = ?", noteID, userID).First(&note).Error
+	if err != nil {
+		return nil, err
+	}
+	return &note, nil
+}
+
+// GetPublicNoteByID 获取公开笔记（用于分享链接）
+func (s *NoteService) GetPublicNoteByID(noteID uint, viewerInfo *models.ViewerInfo) (*models.Note, error) {
+	var note models.Note
+	err := s.db.Preload("Category").Preload("Tags").Preload("Attachments").
+		Where("id = ? AND is_public = ?", noteID, true).First(&note).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 记录公开笔记的浏览量
+	if viewerInfo != nil {
+		go s.recordPublicView(noteID, viewerInfo)
+	}
+
+	return &note, nil
+}
+
+// recordPublicView 记录公开笔记的浏览量
+func (s *NoteService) recordPublicView(noteID uint, viewerInfo *models.ViewerInfo) {
+	// 创建时间窗口标识符
+	timeWindow := time.Now().Format("2006-01-02-15") // 1小时时间窗口
+	identifier := fmt.Sprintf("%s-%d-%s", viewerInfo.IP, noteID, timeWindow)
+	hash := fmt.Sprintf("%x", md5.Sum([]byte(identifier)))
+
+	// 检查是否已记录
+	var existingVisit models.NoteVisit
+	oneHourAgo := time.Now().Add(-1 * time.Hour)
+	
+	err := s.db.Where("note_id = ? AND visitor_ip = ? AND visited_at > ? AND view_hash = ?", 
+		noteID, viewerInfo.IP, oneHourAgo, hash).First(&existingVisit).Error
+	
+	if err == nil {
+		return // 已存在，不重复计数
+	}
+
+	// 创建访问记录
+	visit := models.NoteVisit{
+		NoteID:    noteID,
+		VisitorIP: &viewerInfo.IP,
+		UserAgent: &viewerInfo.UserAgent,
+		Referer:   &viewerInfo.Referer,
+		ViewHash:  &hash,
+		VisitedAt: time.Now(),
+	}
+
+	s.db.Create(&visit)
+
+	// 更新浏览次数
+	s.db.Model(&models.Note{}).Where("id = ?", noteID).Update("view_count", gorm.Expr("view_count + 1"))
 }

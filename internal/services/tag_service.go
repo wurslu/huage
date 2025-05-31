@@ -18,9 +18,11 @@ func NewTagService(db *gorm.DB) *TagService {
 func (s *TagService) GetTags(userID uint) ([]models.Tag, error) {
 	var tags []models.Tag
 	
-	err := s.db.Select("tags.*, COUNT(note_tags.note_id) as note_count").
+	err := s.db.Table("tags").
+		Select("tags.*, COUNT(note_tags.note_id) as note_count").
 		Joins("LEFT JOIN note_tags ON tags.id = note_tags.tag_id").
-		Where("tags.user_id = ?", userID).
+		Joins("LEFT JOIN notes ON note_tags.note_id = notes.id AND notes.deleted_at IS NULL").
+		Where("tags.user_id = ? AND tags.deleted_at IS NULL", userID).
 		Group("tags.id").
 		Order("tags.name").
 		Find(&tags).Error
@@ -33,7 +35,6 @@ func (s *TagService) GetTags(userID uint) ([]models.Tag, error) {
 }
 
 func (s *TagService) CreateTag(userID uint, req *models.TagCreateRequest) (*models.Tag, error) {
-	// 检查标签名称是否已存在
 	var count int64
 	if err := s.db.Model(&models.Tag{}).Where("user_id = ? AND name = ?", userID, req.Name).Count(&count).Error; err != nil {
 		return nil, err

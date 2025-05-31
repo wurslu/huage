@@ -1,3 +1,4 @@
+// internal/routes/routes.go - 修复版本
 package routes
 
 import (
@@ -20,19 +21,22 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 
 	router.Static("/uploads", cfg.File.UploadPath)
 
+	// 初始化服务层
 	authService := services.NewAuthService(db)
 	noteService := services.NewNoteService(db)
 	categoryService := services.NewCategoryService(db)
 	tagService := services.NewTagService(db)
 
+	// 初始化处理器层
 	authHandler := handlers.NewAuthHandler(authService, cfg)
 	noteHandler := handlers.NewNoteHandler(noteService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	tagHandler := handlers.NewTagHandler(tagService)
-	shareHandler := handlers.NewShareHandler(db)
+	shareHandler := handlers.NewShareHandler(db, noteService) // 正确传递两个参数
 
 	api := router.Group("/api")
 
+	// 公开路由
 	public := api.Group("")
 	{
 		auth := public.Group("/auth")
@@ -42,6 +46,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		}
 	}
 
+	// 需要认证的路由
 	protected := api.Group("")
 	protected.Use(middleware.AuthMiddleware(db, cfg))
 	{
@@ -56,10 +61,11 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			notes.GET("", noteHandler.GetNotes)
 			notes.POST("", noteHandler.CreateNote)
 			notes.GET("/stats", noteHandler.GetUserStats)
-			notes.GET("/:id", noteHandler.GetNote)
+			notes.GET("/:id", noteHandler.GetNote) // 这里会记录浏览量
 			notes.PUT("/:id", noteHandler.UpdateNote)
 			notes.DELETE("/:id", noteHandler.DeleteNote)
 			
+			// 分享相关路由
 			notes.POST("/:id/share", shareHandler.CreateShareLink)
 			notes.GET("/:id/share", shareHandler.GetShareInfo)
 			notes.DELETE("/:id/share", shareHandler.DeleteShareLink)
@@ -82,14 +88,18 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		}
 	}
 
+	// 管理员路由
 	admin := api.Group("/admin")
 	admin.Use(middleware.AuthMiddleware(db, cfg))
 	admin.Use(middleware.AdminMiddleware())
 	{
+		// 管理员功能可以在这里添加
 	}
 
+	// 公开分享路由
 	router.GET("/public/notes/:code", shareHandler.GetPublicNote)
 
+	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":  "ok",

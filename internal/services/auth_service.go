@@ -1,38 +1,36 @@
-// internal/services/auth_service.go
 package services
 
 import (
-	"database/sql"
 	"fmt"
 	"notes-backend/internal/models"
 	"notes-backend/internal/utils"
+
+	"gorm.io/gorm"
 )
 
 type AuthService struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
-func NewAuthService(db *sql.DB) *AuthService {
+func NewAuthService(db *gorm.DB) *AuthService {
 	return &AuthService{db: db}
 }
 
 func (s *AuthService) Register(req *models.UserRegisterRequest) (*models.User, error) {
 	// 检查用户名是否存在
-	var exists bool
-	err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)", req.Username).Scan(&exists)
-	if err != nil {
+	var count int64
+	if err := s.db.Model(&models.User{}).Where("username = ?", req.Username).Count(&count).Error; err != nil {
 		return nil, err
 	}
-	if exists {
+	if count > 0 {
 		return nil, fmt.Errorf("用户名已存在")
 	}
 
 	// 检查邮箱是否存在
-	err = s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", req.Email).Scan(&exists)
-	if err != nil {
+	if err := s.db.Model(&models.User{}).Where("email = ?", req.Email).Count(&count).Error; err != nil {
 		return nil, err
 	}
-	if exists {
+	if count > 0 {
 		return nil, fmt.Errorf("邮箱已存在")
 	}
 
@@ -43,25 +41,28 @@ func (s *AuthService) Register(req *models.UserRegisterRequest) (*models.User, e
 	}
 
 	// 创建用户
-	var user models.User
-	err = s.db.QueryRow(`
-		INSERT INTO users (username, email, password_hash, role, is_active)
-		VALUES ($1, $2, $3, 'user', true)
-		RETURNING id, username, email, role, is_active, created_at, updated_at`,
-		req.Username, req.Email, hashedPassword).Scan(
-		&user.ID, &user.Username, &user.Email, &user.Role, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
+	user := models.User{
+		Username:     req.Username,
+		Email:        req.Email,
+		PasswordHash: hashedPassword,
+		Role:         "user",
+		IsActive:     true,
+	}
 
-	if err != nil {
+	if err := s.db.Create(&user).Error; err != nil {
 		return nil, err
 	}
 
 	// 初始化用户存储记录
-	_, err = s.db.Exec(`
-		INSERT INTO user_storage (user_id, used_space, file_count, image_count, document_count)
-		VALUES ($1, 0, 0, 0, 0)`,
-		user.ID)
+	userStorage := models.UserStorage{
+		UserID:        user.ID,
+		UsedSpace:     0,
+		FileCount:     0,
+		ImageCount:    0,
+		DocumentCount: 0,
+	}
 
-	if err != nil {
+	if err := s.db.Create(&userStorage).Error; err != nil {
 		return nil, err
 	}
 
@@ -70,18 +71,11 @@ func (s *AuthService) Register(req *models.UserRegisterRequest) (*models.User, e
 
 func (s *AuthService) Login(req *models.UserLoginRequest) (*models.User, error) {
 	var user models.User
-	err := s.db.QueryRow(`
-		SELECT id, username, email, password_hash, avatar, role, is_active, created_at, updated_at
-		FROM users 
-		WHERE email = $1 AND is_active = true`,
-		req.Email).Scan(
-		&user.ID, &user.Username, &user.Email, &user.PasswordHash, 
-		&user.Avatar, &user.Role, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("邮箱或密码错误")
-	}
+	err := s.db.Where("email = ? AND is_active = ?", req.Email, true).First(&user).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("邮箱或密码错误")
+		}
 		return nil, err
 	}
 
@@ -97,37 +91,20 @@ func (s *AuthService) Login(req *models.UserLoginRequest) (*models.User, error) 
 	return &user, nil
 }
 
-func (s *AuthService) GetUserByID(userID int) (*models.User, error) {
+func (s *AuthService) GetUserByID(userID uint) (*models.User, error) {
 	var user models.User
-	err := s.db.QueryRow(`
-		SELECT id, username, email, avatar, role, is_active, created_at, updated_at
-		FROM users 
-		WHERE id = $1 AND is_active = true`,
-		userID).Scan(
-		&user.ID, &user.Username, &user.Email, &user.Avatar, 
-		&user.Role, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
-
+	err := s.db.Where("id = ? AND is_active = ?", userID, true).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
-
 	return &user, nil
 }
 
-func (s *AuthService) GetUserStorage(userID int) (*models.UserStorage, error) {
+func (s *AuthService) GetUserStorage(userID uint) (*models.UserStorage, error) {
 	var storage models.UserStorage
-	err := s.db.QueryRow(`
-		SELECT user_id, used_space, file_count, image_count, document_count, updated_at
-		FROM user_storage 
-		WHERE user_id = $1`,
-		userID).Scan(
-		&storage.UserID, &storage.UsedSpace, &storage.FileCount, 
-		&storage.ImageCount, &storage.DocumentCount, &storage.UpdatedAt)
-
+	err := s.db.Where("user_id = ?", userID).First(&storage).Error
 	if err != nil {
 		return nil, err
 	}
-
 	return &storage, nil
 }
-

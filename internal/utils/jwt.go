@@ -8,7 +8,7 @@ import (
 )
 
 type Claims struct {
-	UserID   int    `json:"user_id"`
+	UserID   uint   `json:"user_id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Role     string `json:"role"`
@@ -17,7 +17,7 @@ type Claims struct {
 
 func GenerateToken(userID int, username, email, role, secret string, expireHours int) (string, error) {
 	claims := Claims{
-		UserID:   userID,
+		UserID:   uint(userID),
 		Username: username,
 		Email:    email,
 		Role:     role,
@@ -52,4 +52,3 @@ func ParseToken(tokenString, secret string) (*Claims, error) {
 
 	return nil, fmt.Errorf("invalid token")
 }
-

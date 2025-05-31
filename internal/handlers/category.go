@@ -26,7 +26,7 @@ func NewCategoryHandler(categoryService *services.CategoryService) *CategoryHand
 func (h *CategoryHandler) GetCategories(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
-	categories, err := h.categoryService.GetCategoriesTree(userID.(int))
+	categories, err := h.categoryService.GetCategoriesTree(userID.(uint))
 	if err != nil {
 		utils.InternalError(c)
 		return
@@ -49,7 +49,7 @@ func (h *CategoryHandler) CreateCategory(c *gin.Context) {
 		return
 	}
 
-	category, err := h.categoryService.CreateCategory(userID.(int), &req)
+	category, err := h.categoryService.CreateCategory(userID.(uint), &req)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -62,7 +62,7 @@ func (h *CategoryHandler) UpdateCategory(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	categoryIDStr := c.Param("id")
 
-	categoryID, err := strconv.Atoi(categoryIDStr)
+	categoryID, err := strconv.ParseUint(categoryIDStr, 10, 32)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, "无效的分类ID")
 		return
@@ -79,7 +79,7 @@ func (h *CategoryHandler) UpdateCategory(c *gin.Context) {
 		return
 	}
 
-	category, err := h.categoryService.UpdateCategory(categoryID, userID.(int), &req)
+	category, err := h.categoryService.UpdateCategory(uint(categoryID), userID.(uint), &req)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -92,110 +92,13 @@ func (h *CategoryHandler) DeleteCategory(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	categoryIDStr := c.Param("id")
 
-	categoryID, err := strconv.Atoi(categoryIDStr)
+	categoryID, err := strconv.ParseUint(categoryIDStr, 10, 32)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, "无效的分类ID")
 		return
 	}
 
-	err = h.categoryService.DeleteCategory(categoryID, userID.(int))
-	if err != nil {
-		utils.Error(c, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	utils.SuccessWithMessage(c, "删除成功", nil)
-}
-
-// internal/handlers/tag.go
-type TagHandler struct {
-	tagService *services.TagService
-	validator  *validator.Validate
-}
-
-func NewTagHandler(tagService *services.TagService) *TagHandler {
-	return &TagHandler{
-		tagService: tagService,
-		validator:  validator.New(),
-	}
-}
-
-func (h *TagHandler) GetTags(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-
-	tags, err := h.tagService.GetTags(userID.(int))
-	if err != nil {
-		utils.InternalError(c)
-		return
-	}
-
-	utils.Success(c, tags)
-}
-
-func (h *TagHandler) CreateTag(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-
-	var req models.TagCreateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.Error(c, http.StatusBadRequest, "请求参数错误")
-		return
-	}
-
-	if err := h.validator.Struct(&req); err != nil {
-		utils.ValidationError(c, err.Error())
-		return
-	}
-
-	tag, err := h.tagService.CreateTag(userID.(int), &req)
-	if err != nil {
-		utils.Error(c, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	utils.SuccessWithMessage(c, "创建成功", tag)
-}
-
-func (h *TagHandler) UpdateTag(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	tagIDStr := c.Param("id")
-
-	tagID, err := strconv.Atoi(tagIDStr)
-	if err != nil {
-		utils.Error(c, http.StatusBadRequest, "无效的标签ID")
-		return
-	}
-
-	var req models.TagCreateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.Error(c, http.StatusBadRequest, "请求参数错误")
-		return
-	}
-
-	if err := h.validator.Struct(&req); err != nil {
-		utils.ValidationError(c, err.Error())
-		return
-	}
-
-	tag, err := h.tagService.UpdateTag(tagID, userID.(int), &req)
-	if err != nil {
-		utils.Error(c, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	utils.SuccessWithMessage(c, "更新成功", tag)
-}
-
-func (h *TagHandler) DeleteTag(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	tagIDStr := c.Param("id")
-
-	tagID, err := strconv.Atoi(tagIDStr)
-	if err != nil {
-		utils.Error(c, http.StatusBadRequest, "无效的标签ID")
-		return
-	}
-
-	err = h.tagService.DeleteTag(tagID, userID.(int))
+	err = h.categoryService.DeleteCategory(uint(categoryID), userID.(uint))
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return

@@ -1,6 +1,5 @@
 package utils
 
-// internal/utils/response.go
 import (
 	"net/http"
 	"notes-backend/internal/models"

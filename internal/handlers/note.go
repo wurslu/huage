@@ -49,7 +49,7 @@ func (h *NoteHandler) GetNotes(c *gin.Context) {
 		req.Order = "desc"
 	}
 
-	notes, pagination, err := h.noteService.GetNotes(userID.(int), &req)
+	notes, pagination, err := h.noteService.GetNotes(userID.(uint), &req)
 	if err != nil {
 		utils.InternalError(c)
 		return
@@ -65,13 +65,13 @@ func (h *NoteHandler) GetNote(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	noteIDStr := c.Param("id")
 
-	noteID, err := strconv.Atoi(noteIDStr)
+	noteID, err := strconv.ParseUint(noteIDStr, 10, 32)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, "无效的笔记ID")
 		return
 	}
 
-	note, err := h.noteService.GetNoteByID(noteID, userID.(int))
+	note, err := h.noteService.GetNoteByID(uint(noteID), userID.(uint))
 	if err != nil {
 		utils.NotFound(c, "笔记不存在")
 		return
@@ -100,7 +100,7 @@ func (h *NoteHandler) CreateNote(c *gin.Context) {
 		req.ContentType = "markdown"
 	}
 
-	note, err := h.noteService.CreateNote(userID.(int), &req)
+	note, err := h.noteService.CreateNote(userID.(uint), &req)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -113,7 +113,7 @@ func (h *NoteHandler) UpdateNote(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	noteIDStr := c.Param("id")
 
-	noteID, err := strconv.Atoi(noteIDStr)
+	noteID, err := strconv.ParseUint(noteIDStr, 10, 32)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, "无效的笔记ID")
 		return
@@ -131,7 +131,7 @@ func (h *NoteHandler) UpdateNote(c *gin.Context) {
 		return
 	}
 
-	note, err := h.noteService.UpdateNote(noteID, userID.(int), &req)
+	note, err := h.noteService.UpdateNote(uint(noteID), userID.(uint), &req)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -144,13 +144,13 @@ func (h *NoteHandler) DeleteNote(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	noteIDStr := c.Param("id")
 
-	noteID, err := strconv.Atoi(noteIDStr)
+	noteID, err := strconv.ParseUint(noteIDStr, 10, 32)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, "无效的笔记ID")
 		return
 	}
 
-	err = h.noteService.DeleteNote(noteID, userID.(int))
+	err = h.noteService.DeleteNote(uint(noteID), userID.(uint))
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return

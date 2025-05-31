@@ -47,7 +47,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// 生成 JWT Token
 	token, err := utils.GenerateToken(
-		user.ID, user.Username, user.Email, user.Role,
+		int(user.ID), user.Username, user.Email, user.Role,
 		h.config.JWT.Secret, h.config.JWT.ExpireHours)
 	if err != nil {
 		utils.InternalError(c)
@@ -82,7 +82,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// 生成 JWT Token
 	token, err := utils.GenerateToken(
-		user.ID, user.Username, user.Email, user.Role,
+		int(user.ID), user.Username, user.Email, user.Role,
 		h.config.JWT.Secret, h.config.JWT.ExpireHours)
 	if err != nil {
 		utils.InternalError(c)
@@ -103,14 +103,14 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 	}
 
 	// 获取用户信息
-	user, err := h.authService.GetUserByID(userID.(int))
+	user, err := h.authService.GetUserByID(userID.(uint))
 	if err != nil {
 		utils.InternalError(c)
 		return
 	}
 
 	// 获取存储信息
-	storage, err := h.authService.GetUserStorage(userID.(int))
+	storage, err := h.authService.GetUserStorage(userID.(uint))
 	if err != nil {
 		utils.InternalError(c)
 		return

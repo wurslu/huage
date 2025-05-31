@@ -6,3 +6,23 @@
 {"client_ip":"127.0.0.1","error":"","latency":108458,"level":"info","method":"GET","msg":"HTTP Request","path":"/health","status_code":200,"time":"2025-05-31 17:31:54"}
 {"client_ip":"::1","error":"","latency":1724000,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/auth/register","status_code":400,"time":"2025-05-31 17:32:03"}
 {"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 17:35:29"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 18:02:11"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 18:02:17"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 18:02:55"}
+{"client_ip":"::1","error":"","latency":1230500,"level":"info","method":"GET","msg":"HTTP Request","path":"/health","status_code":200,"time":"2025-05-31 18:04:05"}
+{"client_ip":"::1","error":"","latency":105503000,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/auth/register","status_code":200,"time":"2025-05-31 18:07:25"}
+{"client_ip":"::1","error":"","latency":88752250,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/auth/login","status_code":200,"time":"2025-05-31 18:08:10"}
+{"client_ip":"::1","error":"","latency":3387375,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/auth/me","status_code":200,"time":"2025-05-31 18:09:14"}
+{"client_ip":"::1","error":"","latency":36250,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/auth/login","status_code":404,"time":"2025-05-31 18:10:34"}
+{"client_ip":"::1","error":"","latency":91060333,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/auth/login","status_code":200,"time":"2025-05-31 18:10:52"}
+{"client_ip":"::1","error":"","latency":2265083,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/auth/me","status_code":200,"time":"2025-05-31 18:11:50"}
+{"client_ip":"::1","error":"","latency":3576209,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/categories","status_code":200,"time":"2025-05-31 18:13:46"}
+{"client_ip":"::1","error":"","latency":1622041,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/categories","status_code":200,"time":"2025-05-31 18:14:26"}
+{"client_ip":"::1","error":"","latency":25125,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/categories","status_code":401,"time":"2025-05-31 18:14:31"}
+{"client_ip":"::1","error":"","latency":1273834,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/categories","status_code":200,"time":"2025-05-31 18:14:34"}
+{"client_ip":"::1","error":"","latency":6536833,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/tags","status_code":200,"time":"2025-05-31 18:15:28"}
+{"client_ip":"::1","error":"","latency":5481583,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/categories","status_code":200,"time":"2025-05-31 18:17:20"}
+{"client_ip":"::1","error":"","latency":2365042,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/tags","status_code":200,"time":"2025-05-31 18:18:07"}
+{"client_ip":"::1","error":"","latency":16421333,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/notes","status_code":200,"time":"2025-05-31 18:19:32"}
+{"client_ip":"::1","error":"","latency":3951500,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes","status_code":200,"time":"2025-05-31 18:20:08"}
+{"client_ip":"::1","error":"","latency":2176250,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/1","status_code":200,"time":"2025-05-31 18:20:39"}

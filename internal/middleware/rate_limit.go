@@ -31,6 +31,7 @@ var limiter = &rateLimiter{
 }
 
 func RateLimitMiddleware(requestsPerMinute int) gin.HandlerFunc {
+	// 每10分钟清理一次过期的访问者
 	go limiter.cleanupRoutine()
 
 	return func(c *gin.Context) {

@@ -1,0 +1,8 @@
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 17:23:38"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 17:26:17"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 17:26:22"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 17:31:15"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 17:31:25"}
+{"client_ip":"127.0.0.1","error":"","latency":108458,"level":"info","method":"GET","msg":"HTTP Request","path":"/health","status_code":200,"time":"2025-05-31 17:31:54"}
+{"client_ip":"::1","error":"","latency":1724000,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/auth/register","status_code":400,"time":"2025-05-31 17:32:03"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-05-31 17:35:29"}

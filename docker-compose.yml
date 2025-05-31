@@ -1,0 +1,60 @@
+---
+# docker-compose.yml
+version: "3.8"
+
+services:
+  app:
+    build: .
+    container_name: notes-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=notes_user
+      - DB_PASSWORD=notes_password
+      - DB_NAME=notes_db
+      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+      - GIN_MODE=release
+    volumes:
+      - ./uploads:/root/uploads
+      - ./logs:/root/logs
+      - ./backup:/root/backup
+    depends_on:
+      - postgres
+    networks:
+      - notes-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: notes-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=notes_user
+      - POSTGRES_PASSWORD=notes_password
+      - POSTGRES_DB=notes_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backup:/backup
+    ports:
+      - "5432:5432"
+    networks:
+      - notes-network
+
+  # Redis (可选，用于缓存和会话存储)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: notes-redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - notes-network
+
+volumes:
+  postgres_data:
+
+networks:
+  notes-network:
+    driver: bridge

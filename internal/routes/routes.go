@@ -96,6 +96,12 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			tags.PUT("/:id", tagHandler.UpdateTag)
 			tags.DELETE("/:id", tagHandler.DeleteTag)
 		}
+
+		files := protected.Group("/files")
+		{
+			files.GET("/:id", fileHandler.ServeFile)        
+			files.GET("/:id/download", fileHandler.DownloadFile) 
+		}
 	}
 
 	admin := api.Group("/admin")

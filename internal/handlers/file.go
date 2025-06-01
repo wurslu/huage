@@ -7,6 +7,7 @@ import (
 	"notes-backend/internal/config"
 	"notes-backend/internal/services"
 	"notes-backend/internal/utils"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -142,4 +143,78 @@ func (h *FileHandler) validateFile(header *multipart.FileHeader) error {
 	}
 
 	return nil
+}
+
+func (h *FileHandler) ServeFile(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		utils.Unauthorized(c, "请先登录")
+		return
+	}
+
+	attachmentIDStr := c.Param("id")
+	attachmentID, err := strconv.ParseUint(attachmentIDStr, 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, "无效的附件ID")
+		return
+	}
+
+	// 验证文件权限并获取文件信息
+	attachment, err := h.fileService.GetAttachmentByID(uint(attachmentID), userID.(uint))
+	if err != nil {
+		utils.NotFound(c, "文件不存在或无权限访问")
+		return
+	}
+
+	// 检查文件是否存在
+	if _, err := os.Stat(attachment.FilePath); os.IsNotExist(err) {
+		utils.NotFound(c, "文件不存在")
+		return
+	}
+
+	// 设置响应头
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", attachment.OriginalFilename))
+	if attachment.MimeType != nil {
+		c.Header("Content-Type", *attachment.MimeType)
+	}
+
+	// 发送文件
+	c.File(attachment.FilePath)
+}
+
+func (h *FileHandler) DownloadFile(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		utils.Unauthorized(c, "请先登录")
+		return
+	}
+
+	attachmentIDStr := c.Param("id")
+	attachmentID, err := strconv.ParseUint(attachmentIDStr, 10, 32)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, "无效的附件ID")
+		return
+	}
+
+	// 验证文件权限并获取文件信息
+	attachment, err := h.fileService.GetAttachmentByID(uint(attachmentID), userID.(uint))
+	if err != nil {
+		utils.NotFound(c, "文件不存在或无权限访问")
+		return
+	}
+
+	// 检查文件是否存在
+	if _, err := os.Stat(attachment.FilePath); os.IsNotExist(err) {
+		utils.NotFound(c, "文件不存在")
+		return
+	}
+
+	// 设置下载响应头
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", attachment.OriginalFilename))
+	if attachment.MimeType != nil {
+		c.Header("Content-Type", *attachment.MimeType)
+	}
+
+	// 发送文件
+	c.File(attachment.FilePath)
 }

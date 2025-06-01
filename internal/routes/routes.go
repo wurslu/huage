@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"notes-backend/internal/config"
 	"notes-backend/internal/handlers"
 	"notes-backend/internal/middleware"
@@ -30,7 +31,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	noteHandler := handlers.NewNoteHandler(noteService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	tagHandler := handlers.NewTagHandler(tagService)
-	shareHandler := handlers.NewShareHandler(db, noteService)
+	shareHandler := handlers.NewShareHandler(db, noteService, cfg) 
 	fileHandler := handlers.NewFileHandler(fileService, cfg)
 
 	api := router.Group("/api")
@@ -110,7 +111,13 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	{
 	}
 
-	router.GET("/public/notes/:code", shareHandler.GetPublicNote)
+	router.GET("/api/public/notes/:code", shareHandler.GetPublicNote)
+
+	router.GET("/public/notes/:code", func(c *gin.Context) {
+		shareCode := c.Param("code")
+		frontendURL := fmt.Sprintf("%s/public/notes/%s", cfg.Frontend.BaseURL, shareCode)
+		c.Redirect(302, frontendURL)
+	})
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{

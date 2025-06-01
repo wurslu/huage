@@ -16,7 +16,14 @@ type Config struct {
 	File     FileConfig     `yaml:"file"`
 	Backup   BackupConfig   `yaml:"backup"`
 	Log      LogConfig      `yaml:"log"`
+	Frontend FrontendConfig `yaml:"frontend"` 
 }
+
+// 新增前端配置结构体
+type FrontendConfig struct {
+	BaseURL string `yaml:"base_url"`
+}
+
 
 type ServerConfig struct {
 	Port int    `yaml:"port"`
@@ -134,6 +141,9 @@ func (c *Config) overrideFromEnv() {
 			c.File.MaxUserStorage = size
 		}
 	}
+	if val := os.Getenv("FRONTEND_BASE_URL"); val != "" {
+		c.Frontend.BaseURL = val
+	}
 }
 
 func (c *Config) setDefaults() {
@@ -182,6 +192,9 @@ func (c *Config) setDefaults() {
 	}
 	if c.Log.File == "" {
 		c.Log.File = "./logs/app.log"
+	}
+	if c.Frontend.BaseURL == "" {
+		c.Frontend.BaseURL = "http://localhost:5173"
 	}
 }
 

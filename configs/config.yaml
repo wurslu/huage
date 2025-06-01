@@ -1,3 +1,4 @@
+# configs/config.yaml - 添加前端配置
 server:
   port: 8080
   mode: debug # debug, release
@@ -31,6 +32,11 @@ file:
     - docx
     - xls
     - xlsx
+
+# 新增前端配置
+frontend:
+  base_url: http://localhost:5173 # 开发环境
+  # 生产环境改为: https://your-domain.com
 
 backup:
   enabled: true

@@ -1,3 +1,4 @@
+// internal/database/connection.go - 添加自动创建数据库功能
 package database
 
 import (
@@ -12,7 +13,55 @@ import (
 
 var DB *gorm.DB
 
+// createDatabaseIfNotExists 如果数据库不存在则创建
+func createDatabaseIfNotExists(cfg config.DatabaseConfig) error {
+	// 连接到 postgres 默认数据库来创建目标数据库
+	defaultDSN := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=postgres sslmode=%s",
+		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.SSLMode)
+
+	db, err := gorm.Open(postgres.Open(defaultDSN), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent), // 静默模式，避免过多日志
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres database: %w", err)
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get sql.DB: %w", err)
+	}
+	defer sqlDB.Close()
+
+	// 检查数据库是否存在
+	var exists bool
+	checkSQL := "SELECT EXISTS(SELECT datname FROM pg_catalog.pg_database WHERE datname = $1)"
+	err = db.Raw(checkSQL, cfg.DBName).Scan(&exists).Error
+	if err != nil {
+		return fmt.Errorf("failed to check database existence: %w", err)
+	}
+
+	// 如果数据库不存在，则创建
+	if !exists {
+		createSQL := fmt.Sprintf("CREATE DATABASE %s", cfg.DBName)
+		err = db.Exec(createSQL).Error
+		if err != nil {
+			return fmt.Errorf("failed to create database %s: %w", cfg.DBName, err)
+		}
+		fmt.Printf("数据库 '%s' 创建成功\n", cfg.DBName)
+	} else {
+		fmt.Printf("数据库 '%s' 已存在\n", cfg.DBName)
+	}
+
+	return nil
+}
+
 func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
+	// 首先尝试创建数据库（如果不存在）
+	if err := createDatabaseIfNotExists(cfg); err != nil {
+		return nil, err
+	}
+
+	// 连接到目标数据库
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode)
 

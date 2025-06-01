@@ -1,3 +1,4 @@
+// internal/services/note_service.go - 修复版本
 package services
 
 import (
@@ -85,7 +86,7 @@ func (s *NoteService) CreateNote(userID uint, req *models.NoteCreateRequest) (*m
 		Content:     req.Content,
 		ContentType: req.ContentType,
 		IsPublic:    req.IsPublic,
-		ViewCount:   0,
+		ViewCount:   0, // 确保新笔记的浏览量为0
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -110,6 +111,7 @@ func (s *NoteService) CreateNote(userID uint, req *models.NoteCreateRequest) (*m
 		return nil, err
 	}
 
+	// 重新加载笔记数据，确保包含所有关联信息
 	s.db.Preload("Category").Preload("Tags").Preload("Attachments").First(&note, note.ID)
 
 	return &note, nil
@@ -155,6 +157,7 @@ func (s *NoteService) UpdateNote(noteID, userID uint, req *models.NoteUpdateRequ
 		return nil, err
 	}
 
+	// 重新加载笔记数据，确保包含所有关联信息和最新的浏览量
 	s.db.Preload("Category").Preload("Tags").Preload("Attachments").First(&note, note.ID)
 
 	return &note, nil
@@ -194,9 +197,12 @@ func (s *NoteService) GetUserStats(userID uint) (*UserStats, error) {
 		return nil, err
 	}
 
-	if err := s.db.Model(&models.Note{}).Where("user_id = ?", userID).Select("COALESCE(SUM(view_count), 0)").Scan(&stats.TotalViews).Error; err != nil {
+	// 修复浏览量统计 - 确保正确获取总浏览量
+	var totalViews int64
+	if err := s.db.Model(&models.Note{}).Where("user_id = ?", userID).Select("COALESCE(SUM(view_count), 0)").Scan(&totalViews).Error; err != nil {
 		return nil, err
 	}
+	stats.TotalViews = totalViews
 
 	return &stats, nil
 }

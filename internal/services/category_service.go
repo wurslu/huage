@@ -1,3 +1,4 @@
+// internal/services/category_service.go - 修复版本
 package services
 
 import (
@@ -15,19 +16,34 @@ func NewCategoryService(db *gorm.DB) *CategoryService {
 	return &CategoryService{db: db}
 }
 
+// CategoryWithCount 用于接收联表查询结果
+type CategoryWithCount struct {
+	models.Category
+	NoteCount int `gorm:"column:note_count"`
+}
+
 func (s *CategoryService) GetCategoriesTree(userID uint) ([]models.Category, error) {
-	var allCategories []models.Category
+	var categoriesWithCount []CategoryWithCount
 	
+	// 使用联表查询计算每个分类的笔记数量
 	err := s.db.Table("categories").
-		Select("categories.*, COUNT(notes.id) as note_count").
+		Select("categories.*, COALESCE(COUNT(notes.id), 0) as note_count").
 		Joins("LEFT JOIN notes ON categories.id = notes.category_id AND notes.deleted_at IS NULL").
 		Where("categories.user_id = ? AND categories.deleted_at IS NULL", userID).
-		Group("categories.id").
+		Group("categories.id, categories.user_id, categories.name, categories.parent_id, categories.sort_order, categories.description, categories.created_at, categories.updated_at, categories.deleted_at").
 		Order("categories.sort_order, categories.name").
-		Find(&allCategories).Error
+		Find(&categoriesWithCount).Error
 	
 	if err != nil {
 		return nil, err
+	}
+
+	// 转换为普通的Category切片，并设置NoteCount字段
+	var allCategories []models.Category
+	for _, cat := range categoriesWithCount {
+		category := cat.Category
+		category.NoteCount = cat.NoteCount
+		allCategories = append(allCategories, category)
 	}
 
 	// 构建树形结构
@@ -91,6 +107,9 @@ func (s *CategoryService) CreateCategory(userID uint, req *models.CategoryCreate
 		return nil, err
 	}
 
+	// 设置初始笔记数量为0
+	category.NoteCount = 0
+
 	return &category, nil
 }
 
@@ -121,7 +140,23 @@ func (s *CategoryService) UpdateCategory(categoryID, userID uint, req *models.Ca
 		return nil, err
 	}
 
-	return &category, nil
+	// 重新获取更新后的分类，包含笔记数量
+	var categoryWithCount CategoryWithCount
+	err := s.db.Table("categories").
+		Select("categories.*, COALESCE(COUNT(notes.id), 0) as note_count").
+		Joins("LEFT JOIN notes ON categories.id = notes.category_id AND notes.deleted_at IS NULL").
+		Where("categories.id = ?", categoryID).
+		Group("categories.id, categories.user_id, categories.name, categories.parent_id, categories.sort_order, categories.description, categories.created_at, categories.updated_at, categories.deleted_at").
+		First(&categoryWithCount).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	result := categoryWithCount.Category
+	result.NoteCount = categoryWithCount.NoteCount
+
+	return &result, nil
 }
 
 func (s *CategoryService) DeleteCategory(categoryID, userID uint) error {

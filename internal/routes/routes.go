@@ -1,4 +1,4 @@
-// internal/routes/routes.go - 修复版本
+// internal/routes/routes.go - 修复分享路由
 package routes
 
 import (
@@ -32,7 +32,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	noteHandler := handlers.NewNoteHandler(noteService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	tagHandler := handlers.NewTagHandler(tagService)
-	shareHandler := handlers.NewShareHandler(db, noteService) // 正确传递两个参数
+	shareHandler := handlers.NewShareHandler(db, noteService)
 
 	api := router.Group("/api")
 
@@ -61,14 +61,14 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			notes.GET("", noteHandler.GetNotes)
 			notes.POST("", noteHandler.CreateNote)
 			notes.GET("/stats", noteHandler.GetUserStats)
-			notes.GET("/:id", noteHandler.GetNote) // 这里会记录浏览量
+			notes.GET("/:id", noteHandler.GetNote)
 			notes.PUT("/:id", noteHandler.UpdateNote)
 			notes.DELETE("/:id", noteHandler.DeleteNote)
 			
-			// 分享相关路由
-			notes.POST("/:id/share", shareHandler.CreateShareLink)
-			notes.GET("/:id/share", shareHandler.GetShareInfo)
-			notes.DELETE("/:id/share", shareHandler.DeleteShareLink)
+			// 分享相关路由 - 确保这些路由都存在
+			notes.POST("/:id/share", shareHandler.CreateShareLink)    // 创建分享链接
+			notes.GET("/:id/share", shareHandler.GetShareInfo)        // 获取分享信息
+			notes.DELETE("/:id/share", shareHandler.DeleteShareLink)  // 删除分享链接
 		}
 
 		categories := protected.Group("/categories")
@@ -96,7 +96,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		// 管理员功能可以在这里添加
 	}
 
-	// 公开分享路由
+	// 公开分享路由 - 不需要认证
 	router.GET("/public/notes/:code", shareHandler.GetPublicNote)
 
 	// 健康检查

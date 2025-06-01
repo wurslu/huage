@@ -1,4 +1,4 @@
-// internal/services/note_service.go - 修复版本
+// internal/services/note_service.go - 修复删除方法
 package services
 
 import (
@@ -86,7 +86,7 @@ func (s *NoteService) CreateNote(userID uint, req *models.NoteCreateRequest) (*m
 		Content:     req.Content,
 		ContentType: req.ContentType,
 		IsPublic:    req.IsPublic,
-		ViewCount:   0, // 确保新笔记的浏览量为0
+		ViewCount:   0,
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -111,7 +111,6 @@ func (s *NoteService) CreateNote(userID uint, req *models.NoteCreateRequest) (*m
 		return nil, err
 	}
 
-	// 重新加载笔记数据，确保包含所有关联信息
 	s.db.Preload("Category").Preload("Tags").Preload("Attachments").First(&note, note.ID)
 
 	return &note, nil
@@ -157,21 +156,69 @@ func (s *NoteService) UpdateNote(noteID, userID uint, req *models.NoteUpdateRequ
 		return nil, err
 	}
 
-	// 重新加载笔记数据，确保包含所有关联信息和最新的浏览量
 	s.db.Preload("Category").Preload("Tags").Preload("Attachments").First(&note, note.ID)
 
 	return &note, nil
 }
 
+// DeleteNote 删除笔记 - 修复版本，添加详细日志和错误处理
 func (s *NoteService) DeleteNote(noteID, userID uint) error {
-	result := s.db.Where("id = ? AND user_id = ?", noteID, userID).Delete(&models.Note{})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("笔记不存在或无权限删除")
-	}
-	return nil
+	fmt.Printf("NoteService.DeleteNote called: noteID=%d, userID=%d\n", noteID, userID)
+
+	// 使用事务确保数据一致性
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// 1. 先检查笔记是否存在
+		var note models.Note
+		if err := tx.Where("id = ? AND user_id = ?", noteID, userID).First(&note).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				fmt.Printf("Note not found: noteID=%d, userID=%d\n", noteID, userID)
+				return fmt.Errorf("笔记不存在或无权限删除")
+			}
+			fmt.Printf("Error finding note: %v\n", err)
+			return err
+		}
+
+		fmt.Printf("Found note to delete: %+v\n", note)
+
+		// 2. 删除相关的标签关联（多对多关系）
+		if err := tx.Model(&note).Association("Tags").Clear(); err != nil {
+			fmt.Printf("Error clearing note tags: %v\n", err)
+			return fmt.Errorf("删除标签关联失败: %v", err)
+		}
+
+		// 3. 删除相关的附件
+		if err := tx.Where("note_id = ?", noteID).Delete(&models.Attachment{}).Error; err != nil {
+			fmt.Printf("Error deleting attachments: %v\n", err)
+			return fmt.Errorf("删除附件失败: %v", err)
+		}
+
+		// 4. 删除相关的分享链接
+		if err := tx.Where("note_id = ?", noteID).Delete(&models.ShareLink{}).Error; err != nil {
+			fmt.Printf("Error deleting share links: %v\n", err)
+			return fmt.Errorf("删除分享链接失败: %v", err)
+		}
+
+		// 5. 删除相关的访问记录
+		if err := tx.Where("note_id = ?", noteID).Delete(&models.NoteVisit{}).Error; err != nil {
+			fmt.Printf("Error deleting note visits: %v\n", err)
+			return fmt.Errorf("删除访问记录失败: %v", err)
+		}
+
+		// 6. 最后删除笔记本身（软删除）
+		result := tx.Delete(&note)
+		if result.Error != nil {
+			fmt.Printf("Error deleting note: %v\n", result.Error)
+			return fmt.Errorf("删除笔记失败: %v", result.Error)
+		}
+
+		if result.RowsAffected == 0 {
+			fmt.Printf("No rows affected when deleting note: noteID=%d\n", noteID)
+			return fmt.Errorf("笔记不存在或无权限删除")
+		}
+
+		fmt.Printf("Note deleted successfully: noteID=%d, rowsAffected=%d\n", noteID, result.RowsAffected)
+		return nil
+	})
 }
 
 func (s *NoteService) GetUserStats(userID uint) (*UserStats, error) {
@@ -197,7 +244,6 @@ func (s *NoteService) GetUserStats(userID uint) (*UserStats, error) {
 		return nil, err
 	}
 
-	// 修复浏览量统计 - 确保正确获取总浏览量
 	var totalViews int64
 	if err := s.db.Model(&models.Note{}).Where("user_id = ?", userID).Select("COALESCE(SUM(view_count), 0)").Scan(&totalViews).Error; err != nil {
 		return nil, err
@@ -209,18 +255,15 @@ func (s *NoteService) GetUserStats(userID uint) (*UserStats, error) {
 
 func (s *NoteService) RecordView(noteID, viewerID uint, clientIP, userAgent, viewHash string) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// 检查笔记是否存在且不是作者本人查看
 		var note models.Note
 		if err := tx.Where("id = ?", noteID).First(&note).Error; err != nil {
 			return err
 		}
 
-		// 如果是作者本人查看，不计入浏览量
 		if note.UserID == viewerID {
 			return nil
 		}
 
-		// 检查在时间窗口内是否已经记录过（防止重复刷新计数）
 		var existingVisit models.NoteVisit
 		oneHourAgo := time.Now().Add(-1 * time.Hour)
 		
@@ -228,11 +271,9 @@ func (s *NoteService) RecordView(noteID, viewerID uint, clientIP, userAgent, vie
 			noteID, clientIP, oneHourAgo, viewHash).First(&existingVisit).Error
 		
 		if err == nil {
-			// 已存在相同访问记录，不重复计数
 			return nil
 		}
 
-		// 创建新的访问记录
 		visit := models.NoteVisit{
 			NoteID:    noteID,
 			ViewerID:  &viewerID,
@@ -246,12 +287,10 @@ func (s *NoteService) RecordView(noteID, viewerID uint, clientIP, userAgent, vie
 			return err
 		}
 
-		// 更新笔记的浏览次数
 		return tx.Model(&note).Update("view_count", gorm.Expr("view_count + 1")).Error
 	})
 }
 
-// GetNoteByID 获取单个笔记
 func (s *NoteService) GetNoteByID(noteID, userID uint) (*models.Note, error) {
 	var note models.Note
 	err := s.db.Preload("Category").Preload("Tags").Preload("Attachments").
@@ -262,7 +301,6 @@ func (s *NoteService) GetNoteByID(noteID, userID uint) (*models.Note, error) {
 	return &note, nil
 }
 
-// GetPublicNoteByID 获取公开笔记（用于分享链接）
 func (s *NoteService) GetPublicNoteByID(noteID uint, viewerInfo *models.ViewerInfo) (*models.Note, error) {
 	var note models.Note
 	err := s.db.Preload("Category").Preload("Tags").Preload("Attachments").
@@ -271,7 +309,6 @@ func (s *NoteService) GetPublicNoteByID(noteID uint, viewerInfo *models.ViewerIn
 		return nil, err
 	}
 
-	// 记录公开笔记的浏览量
 	if viewerInfo != nil {
 		go s.recordPublicView(noteID, viewerInfo)
 	}
@@ -279,14 +316,11 @@ func (s *NoteService) GetPublicNoteByID(noteID uint, viewerInfo *models.ViewerIn
 	return &note, nil
 }
 
-// recordPublicView 记录公开笔记的浏览量
 func (s *NoteService) recordPublicView(noteID uint, viewerInfo *models.ViewerInfo) {
-	// 创建时间窗口标识符
-	timeWindow := time.Now().Format("2006-01-02-15") // 1小时时间窗口
+	timeWindow := time.Now().Format("2006-01-02-15")
 	identifier := fmt.Sprintf("%s-%d-%s", viewerInfo.IP, noteID, timeWindow)
 	hash := fmt.Sprintf("%x", md5.Sum([]byte(identifier)))
 
-	// 检查是否已记录
 	var existingVisit models.NoteVisit
 	oneHourAgo := time.Now().Add(-1 * time.Hour)
 	
@@ -294,10 +328,9 @@ func (s *NoteService) recordPublicView(noteID uint, viewerInfo *models.ViewerInf
 		noteID, viewerInfo.IP, oneHourAgo, hash).First(&existingVisit).Error
 	
 	if err == nil {
-		return // 已存在，不重复计数
+		return
 	}
 
-	// 创建访问记录
 	visit := models.NoteVisit{
 		NoteID:    noteID,
 		VisitorIP: &viewerInfo.IP,
@@ -308,7 +341,5 @@ func (s *NoteService) recordPublicView(noteID uint, viewerInfo *models.ViewerInf
 	}
 
 	s.db.Create(&visit)
-
-	// 更新浏览次数
 	s.db.Model(&models.Note{}).Where("id = ?", noteID).Update("view_count", gorm.Expr("view_count + 1"))
 }

@@ -1,4 +1,4 @@
-// internal/handlers/note.go - 完整的修复版本
+// internal/handlers/note.go - 修复删除笔记功能
 package handlers
 
 import (
@@ -162,22 +162,31 @@ func (h *NoteHandler) UpdateNote(c *gin.Context) {
 	utils.SuccessWithMessage(c, "更新成功", note)
 }
 
+// DeleteNote 删除笔记 - 添加详细日志
 func (h *NoteHandler) DeleteNote(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	noteIDStr := c.Param("id")
 
+	// 记录删除请求的详细信息
+	fmt.Printf("DeleteNote called: user_id=%v, note_id=%s\n", userID, noteIDStr)
+
 	noteID, err := strconv.ParseUint(noteIDStr, 10, 32)
 	if err != nil {
+		fmt.Printf("Invalid note ID: %s, error: %v\n", noteIDStr, err)
 		utils.Error(c, http.StatusBadRequest, "无效的笔记ID")
 		return
 	}
 
+	fmt.Printf("Attempting to delete note: note_id=%d, user_id=%v\n", noteID, userID)
+
 	err = h.noteService.DeleteNote(uint(noteID), userID.(uint))
 	if err != nil {
+		fmt.Printf("Delete note failed: %v\n", err)
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
+	fmt.Printf("Note deleted successfully: note_id=%d\n", noteID)
 	utils.SuccessWithMessage(c, "删除成功", nil)
 }
 

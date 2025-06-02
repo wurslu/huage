@@ -1,4 +1,4 @@
-# docker-compose.yml - 完整配置，支持本地和云端数据库
+# docker-compose.yml - 简化版本，专注 Vercel 数据库
 version: "3.8"
 
 services:
@@ -10,38 +10,16 @@ services:
     container_name: notes-backend
     restart: unless-stopped
     ports:
-      - "${HOST_PORT:-9191}:${CONTAINER_PORT:-9191}"
+      - "9191:9191"
     environment:
-      # 数据库模式配置
-      - DB_MODE=${DB_MODE:-local}
-
-      # 本地数据库配置
-      - LOCAL_DB_HOST=${LOCAL_DB_HOST:-postgres}
-      - LOCAL_DB_PORT=${LOCAL_DB_PORT:-5432}
-      - LOCAL_DB_USER=${LOCAL_DB_USER:-notes_user}
-      - LOCAL_DB_PASSWORD=${LOCAL_DB_PASSWORD:-notes_password_2024}
-      - LOCAL_DB_NAME=${LOCAL_DB_NAME:-notes_db}
-
-      # Vercel 数据库配置
+      # 数据库配置
+      - DB_MODE=vercel
       - VERCEL_POSTGRES_URL=${VERCEL_POSTGRES_URL}
-      - VERCEL_POSTGRES_HOST=${VERCEL_POSTGRES_HOST}
-      - VERCEL_POSTGRES_USER=${VERCEL_POSTGRES_USER}
-      - VERCEL_POSTGRES_PASSWORD=${VERCEL_POSTGRES_PASSWORD}
-      - VERCEL_POSTGRES_DATABASE=${VERCEL_POSTGRES_DATABASE}
-
-      # 自定义数据库配置
-      - CUSTOM_DB_URL=${CUSTOM_DB_URL}
-      - CUSTOM_DB_HOST=${CUSTOM_DB_HOST}
-      - CUSTOM_DB_PORT=${CUSTOM_DB_PORT}
-      - CUSTOM_DB_USER=${CUSTOM_DB_USER}
-      - CUSTOM_DB_PASSWORD=${CUSTOM_DB_PASSWORD}
-      - CUSTOM_DB_NAME=${CUSTOM_DB_NAME}
-      - CUSTOM_DB_SSLMODE=${CUSTOM_DB_SSLMODE:-disable}
 
       # 应用配置
       - JWT_SECRET=${JWT_SECRET}
-      - SERVER_PORT=${CONTAINER_PORT:-9191}
-      - GIN_MODE=${GIN_MODE:-release}
+      - SERVER_PORT=9191
+      - GIN_MODE=release
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL}
 
       # 文件配置
@@ -52,12 +30,8 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
-      - ./backup:/app/backup
     networks:
       - notes-network
-    depends_on:
-      postgres:
-        condition: service_healthy
     healthcheck:
       test:
         [
@@ -66,62 +40,11 @@ services:
           "--quiet",
           "--tries=1",
           "--spider",
-          "http://localhost:${CONTAINER_PORT:-9191}/health",
+          "http://localhost:9191/health",
         ]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 40s
-
-  # 本地 PostgreSQL 数据库
-  postgres:
-    image: postgres:15-alpine
-    container_name: notes-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=${LOCAL_DB_USER:-notes_user}
-      - POSTGRES_PASSWORD=${LOCAL_DB_PASSWORD:-notes_password_2024}
-      - POSTGRES_DB=${LOCAL_DB_NAME:-notes_db}
-      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./backup:/backup
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-    ports:
-      - "5432:5432"
-    networks:
-      - notes-network
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${LOCAL_DB_USER:-notes_user} -d ${LOCAL_DB_NAME:-notes_db}",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    profiles:
-      - local # 只有在 local profile 时才启动
-
-  # Redis 缓存 (可选)
-  redis:
-    image: redis:7-alpine
-    container_name: notes-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - notes-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
       retries: 3
-    profiles:
-      - local
-      - cache
 
   # Nginx 反向代理
   nginx:
@@ -139,15 +62,6 @@ services:
       - app
     networks:
       - notes-network
-    profiles:
-      - nginx
-      - production
-
-volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
 
 networks:
   notes-network:

@@ -1,4 +1,3 @@
-// internal/database/connection.go - 添加自动创建数据库功能
 package database
 
 import (
@@ -13,14 +12,17 @@ import (
 
 var DB *gorm.DB
 
-// createDatabaseIfNotExists 如果数据库不存在则创建
 func createDatabaseIfNotExists(cfg config.DatabaseConfig) error {
-	// 连接到 postgres 默认数据库来创建目标数据库
+	if cfg.URL != "" {
+		fmt.Println("使用完整数据库 URL，跳过数据库创建检查")
+		return nil
+	}
+
 	defaultDSN := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=postgres sslmode=%s",
 		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.SSLMode)
 
 	db, err := gorm.Open(postgres.Open(defaultDSN), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent), // 静默模式，避免过多日志
+		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to postgres database: %w", err)
@@ -32,7 +34,6 @@ func createDatabaseIfNotExists(cfg config.DatabaseConfig) error {
 	}
 	defer sqlDB.Close()
 
-	// 检查数据库是否存在
 	var exists bool
 	checkSQL := "SELECT EXISTS(SELECT datname FROM pg_catalog.pg_database WHERE datname = $1)"
 	err = db.Raw(checkSQL, cfg.DBName).Scan(&exists).Error
@@ -40,7 +41,6 @@ func createDatabaseIfNotExists(cfg config.DatabaseConfig) error {
 		return fmt.Errorf("failed to check database existence: %w", err)
 	}
 
-	// 如果数据库不存在，则创建
 	if !exists {
 		createSQL := fmt.Sprintf("CREATE DATABASE %s", cfg.DBName)
 		err = db.Exec(createSQL).Error
@@ -56,14 +56,24 @@ func createDatabaseIfNotExists(cfg config.DatabaseConfig) error {
 }
 
 func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
-	// 首先尝试创建数据库（如果不存在）
-	if err := createDatabaseIfNotExists(cfg); err != nil {
-		return nil, err
+	var dsn string
+	var shouldCreateDB bool = true
+
+	if cfg.URL != "" {
+		dsn = cfg.URL
+		shouldCreateDB = false
+		fmt.Println("使用数据库 URL 连接")
+	} else {
+		dsn = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+			cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode)
+		fmt.Println("使用传统数据库参数连接")
 	}
 
-	// 连接到目标数据库
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode)
+	if shouldCreateDB {
+		if err := createDatabaseIfNotExists(cfg); err != nil {
+			fmt.Printf("警告：创建数据库失败，尝试直接连接: %v\n", err)
+		}
+	}
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
@@ -72,17 +82,20 @@ func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// 获取底层的 sql.DB 来设置连接池参数
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
 	}
 
-	// 设置连接池参数
 	sqlDB.SetMaxOpenConns(25)
 	sqlDB.SetMaxIdleConns(5)
 
+	if err := sqlDB.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
 	DB = db
+	fmt.Println("数据库连接成功")
 	return db, nil
 }
 
@@ -91,7 +104,8 @@ func AutoMigrate() error {
 		return fmt.Errorf("database connection not initialized")
 	}
 
-	// 自动迁移所有模型
+	fmt.Println("开始数据库迁移...")
+
 	err := DB.AutoMigrate(
 		&models.User{},
 		&models.Category{},
@@ -108,11 +122,13 @@ func AutoMigrate() error {
 		return fmt.Errorf("failed to auto migrate: %w", err)
 	}
 
-	// 插入默认系统配置
+	fmt.Println("数据库迁移完成")
+
 	if err := insertDefaultConfigs(); err != nil {
 		return fmt.Errorf("failed to insert default configs: %w", err)
 	}
 
+	fmt.Println("默认配置插入完成")
 	return nil
 }
 
@@ -129,7 +145,6 @@ func insertDefaultConfigs() error {
 		var existing models.SystemConfig
 		if err := DB.Where("key = ?", config.Key).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				// 配置不存在，创建新的
 				if err := DB.Create(&config).Error; err != nil {
 					return err
 				}

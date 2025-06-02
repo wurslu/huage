@@ -1,15 +1,17 @@
-# configs/config.yaml - 添加前端配置
+# configs/config.yaml - 支持 Vercel Postgres 和 HTTPS
 server:
-  port: 8080
+  port: 9191 # 你要的端口
   mode: debug # debug, release
 
 database:
+  # 这些是默认值，会被环境变量覆盖
   host: localhost
   port: 5432
   user: notes_user
   password: notes_password
   dbname: notes_db
-  sslmode: disable
+  sslmode: require # Vercel Postgres 需要 SSL
+  # url 字段会从环境变量 POSTGRES_URL 或 DATABASE_URL 中读取
 
 jwt:
   secret: your-super-secret-jwt-key-change-this-in-production
@@ -33,10 +35,9 @@ file:
     - xls
     - xlsx
 
-# 新增前端配置
+# 前端配置 - 使用 HTTPS
 frontend:
-  base_url: http://localhost:5173 # 开发环境
-  # 生产环境改为: https://your-domain.com
+  base_url: https://huage.api.withgo.cn # 你的 HTTPS 域名
 
 backup:
   enabled: true

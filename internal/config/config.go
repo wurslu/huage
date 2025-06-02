@@ -16,14 +16,12 @@ type Config struct {
 	File     FileConfig     `yaml:"file"`
 	Backup   BackupConfig   `yaml:"backup"`
 	Log      LogConfig      `yaml:"log"`
-	Frontend FrontendConfig `yaml:"frontend"` 
+	Frontend FrontendConfig `yaml:"frontend"`
 }
 
-// 新增前端配置结构体
 type FrontendConfig struct {
 	BaseURL string `yaml:"base_url"`
 }
-
 
 type ServerConfig struct {
 	Port int    `yaml:"port"`
@@ -37,6 +35,7 @@ type DatabaseConfig struct {
 	Password string `yaml:"password"`
 	DBName   string `yaml:"dbname"`
 	SSLMode  string `yaml:"sslmode"`
+	URL      string `yaml:"url"`
 }
 
 type JWTConfig struct {
@@ -71,48 +70,136 @@ type LogConfig struct {
 func Load() (*Config, error) {
 	cfg := &Config{}
 
-	// 首先尝试从 YAML 文件加载
 	if data, err := os.ReadFile("configs/config.yaml"); err == nil {
 		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to parse config.yaml: %w", err)
 		}
 	}
 
-	// 然后从环境变量覆盖
 	cfg.overrideFromEnv()
 
-	// 设置默认值
 	cfg.setDefaults()
+
+	if err := cfg.configureDatabaseByMode(); err != nil {
+		return nil, fmt.Errorf("database configuration failed: %w", err)
+	}
 
 	return cfg, nil
 }
 
-func (c *Config) overrideFromEnv() {
-	// Database
-	if val := os.Getenv("DB_HOST"); val != "" {
-		c.Database.Host = val
-	}
-	if val := os.Getenv("DB_PORT"); val != "" {
-		if port, err := strconv.Atoi(val); err == nil {
-			c.Database.Port = port
-		}
-	}
-	if val := os.Getenv("DB_USER"); val != "" {
-		c.Database.User = val
-	}
-	if val := os.Getenv("DB_PASSWORD"); val != "" {
-		c.Database.Password = val
-	}
-	if val := os.Getenv("DB_NAME"); val != "" {
-		c.Database.DBName = val
+func (c *Config) configureDatabaseByMode() error {
+	dbMode := os.Getenv("DB_MODE")
+	if dbMode == "" {
+		dbMode = "local"
 	}
 
-	// JWT
+	fmt.Printf("database mode: %s\n", dbMode)
+
+	switch dbMode {
+	case "local":
+		return c.configureLocalDatabase()
+	case "vercel":
+		return c.configureVercelDatabase()
+	case "custom":
+		return c.configureCustomDatabase()
+	default:
+		return fmt.Errorf("unknown database mode: %s", dbMode)
+	}
+}
+
+func (c *Config) configureLocalDatabase() error {
+	fmt.Println("configuring local database...")
+	
+	c.Database.Host = getEnvOrDefault("LOCAL_DB_HOST", "postgres")
+	c.Database.User = getEnvOrDefault("LOCAL_DB_USER", "notes_user")
+	c.Database.Password = getEnvOrDefault("LOCAL_DB_PASSWORD", "notes_password_2024")
+	c.Database.DBName = getEnvOrDefault("LOCAL_DB_NAME", "notes_db")
+	c.Database.SSLMode = "disable"
+	
+	if portStr := os.Getenv("LOCAL_DB_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			c.Database.Port = port
+		}
+	} else {
+		c.Database.Port = 5432
+	}
+
+	c.Database.URL = ""
+	
+	fmt.Printf("local database config: %s@%s:%d/%s\n", 
+		c.Database.User, c.Database.Host, c.Database.Port, c.Database.DBName)
+	
+	return nil
+}
+
+func (c *Config) configureVercelDatabase() error {
+	fmt.Println("configuring Vercel database...")
+	
+	if url := os.Getenv("VERCEL_POSTGRES_URL"); url != "" {
+		c.Database.URL = url
+		c.Database.SSLMode = "require"
+		fmt.Println("using Vercel POSTGRES_URL")
+		return nil
+	}
+
+	c.Database.Host = os.Getenv("VERCEL_POSTGRES_HOST")
+	c.Database.User = os.Getenv("VERCEL_POSTGRES_USER")
+	c.Database.Password = os.Getenv("VERCEL_POSTGRES_PASSWORD")
+	c.Database.DBName = os.Getenv("VERCEL_POSTGRES_DATABASE")
+	c.Database.Port = 5432
+	c.Database.SSLMode = "require"
+	c.Database.URL = ""
+
+	if c.Database.Host == "" || c.Database.User == "" {
+		return fmt.Errorf("vercel database configuration incomplete, please set VERCEL_POSTGRES_URL or VERCEL_POSTGRES_* parameters")
+	}
+
+	fmt.Printf("vercel database config: %s@%s:%d/%s\n", 
+		c.Database.User, c.Database.Host, c.Database.Port, c.Database.DBName)
+	
+	return nil
+}
+
+func (c *Config) configureCustomDatabase() error {
+	fmt.Println("configuring custom database...")
+	
+	if url := os.Getenv("CUSTOM_DB_URL"); url != "" {
+		c.Database.URL = url
+		c.Database.SSLMode = getEnvOrDefault("CUSTOM_DB_SSLMODE", "disable")
+		fmt.Println("using custom database URL")
+		return nil
+	}
+
+	c.Database.Host = os.Getenv("CUSTOM_DB_HOST")
+	c.Database.User = os.Getenv("CUSTOM_DB_USER")
+	c.Database.Password = os.Getenv("CUSTOM_DB_PASSWORD")
+	c.Database.DBName = os.Getenv("CUSTOM_DB_NAME")
+	c.Database.SSLMode = getEnvOrDefault("CUSTOM_DB_SSLMODE", "disable")
+	c.Database.URL = ""
+
+	if portStr := os.Getenv("CUSTOM_DB_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			c.Database.Port = port
+		}
+	} else {
+		c.Database.Port = 5432
+	}
+
+	if c.Database.Host == "" || c.Database.User == "" {
+		return fmt.Errorf("custom database configuration incomplete, please set related parameters")
+	}
+
+	fmt.Printf("custom database config: %s@%s:%d/%s\n", 
+		c.Database.User, c.Database.Host, c.Database.Port, c.Database.DBName)
+	
+	return nil
+}
+
+func (c *Config) overrideFromEnv() {
 	if val := os.Getenv("JWT_SECRET"); val != "" {
 		c.JWT.Secret = val
 	}
 
-	// Server
 	if val := os.Getenv("SERVER_PORT"); val != "" {
 		if port, err := strconv.Atoi(val); err == nil {
 			c.Server.Port = port
@@ -122,7 +209,6 @@ func (c *Config) overrideFromEnv() {
 		c.Server.Mode = val
 	}
 
-	// File
 	if val := os.Getenv("UPLOAD_PATH"); val != "" {
 		c.File.UploadPath = val
 	}
@@ -148,20 +234,10 @@ func (c *Config) overrideFromEnv() {
 
 func (c *Config) setDefaults() {
 	if c.Server.Port == 0 {
-		c.Server.Port = 8080
+		c.Server.Port = 9191
 	}
 	if c.Server.Mode == "" {
 		c.Server.Mode = "debug"
-	}
-
-	if c.Database.Host == "" {
-		c.Database.Host = "localhost"
-	}
-	if c.Database.Port == 0 {
-		c.Database.Port = 5432
-	}
-	if c.Database.SSLMode == "" {
-		c.Database.SSLMode = "disable"
 	}
 
 	if c.JWT.ExpireHours == 0 {
@@ -172,13 +248,13 @@ func (c *Config) setDefaults() {
 		c.File.UploadPath = "./uploads"
 	}
 	if c.File.MaxImageSize == 0 {
-		c.File.MaxImageSize = 10485760 // 10MB
+		c.File.MaxImageSize = 10485760
 	}
 	if c.File.MaxDocumentSize == 0 {
-		c.File.MaxDocumentSize = 52428800 // 50MB
+		c.File.MaxDocumentSize = 52428800
 	}
 	if c.File.MaxUserStorage == 0 {
-		c.File.MaxUserStorage = 524288000 // 500MB
+		c.File.MaxUserStorage = 524288000
 	}
 	if len(c.File.AllowedImageTypes) == 0 {
 		c.File.AllowedImageTypes = []string{"jpg", "jpeg", "png", "gif", "webp"}
@@ -194,11 +270,15 @@ func (c *Config) setDefaults() {
 		c.Log.File = "./logs/app.log"
 	}
 	if c.Frontend.BaseURL == "" {
-		c.Frontend.BaseURL = "http://localhost:5173"
+		c.Frontend.BaseURL = "https://huage.api.withgo.cn"
 	}
 }
 
 func (c *Config) GetDSN() string {
+	if c.Database.URL != "" {
+		return c.Database.URL
+	}
+	
 	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		c.Database.Host, c.Database.Port, c.Database.User,
 		c.Database.Password, c.Database.DBName, c.Database.SSLMode)
@@ -222,4 +302,11 @@ func (c *Config) IsDocumentType(fileType string) bool {
 		}
 	}
 	return false
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }

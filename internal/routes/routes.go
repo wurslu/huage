@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"fmt"
 	"notes-backend/internal/config"
 	"notes-backend/internal/handlers"
 	"notes-backend/internal/middleware"
@@ -33,6 +32,7 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	tagHandler := handlers.NewTagHandler(tagService)
 	shareHandler := handlers.NewShareHandler(db, noteService, cfg) 
 	fileHandler := handlers.NewFileHandler(fileService, cfg)
+	adminHandler := handlers.NewAdminHandler(fileService)
 
 	api := router.Group("/api")
 
@@ -43,6 +43,8 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			auth.POST("/register", authHandler.Register)
 			auth.POST("/login", authHandler.Login)
 		}
+		
+		public.GET("/public/notes/:code", shareHandler.GetPublicNote)
 	}
 
 	protected := api.Group("")
@@ -97,27 +99,24 @@ func Setup(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			tags.PUT("/:id", tagHandler.UpdateTag)
 			tags.DELETE("/:id", tagHandler.DeleteTag)
 		}
+	}
 
-		files := protected.Group("/files")
-		{
-			files.GET("/:id", fileHandler.ServeFile)        
-			files.GET("/:id/download", fileHandler.DownloadFile) 
-		}
+	files := api.Group("/files")
+	files.Use(middleware.AuthMiddlewareWithQuery(db, cfg))
+	{
+		files.GET("/:id", fileHandler.ServeFile)        
+		files.GET("/:id/download", fileHandler.DownloadFile) 
 	}
 
 	admin := api.Group("/admin")
 	admin.Use(middleware.AuthMiddleware(db, cfg))
 	admin.Use(middleware.AdminMiddleware())
 	{
+		admin.GET("/attachments/deleted", adminHandler.GetDeletedAttachments)
+		admin.DELETE("/attachments/:id/permanent", adminHandler.PermanentlyDeleteAttachment)
+		admin.POST("/attachments/:id/restore", adminHandler.RestoreAttachment)
+		admin.POST("/users/:userId/storage/recalculate", adminHandler.RecalculateUserStorage)
 	}
-
-	router.GET("/api/public/notes/:code", shareHandler.GetPublicNote)
-
-	router.GET("/public/notes/:code", func(c *gin.Context) {
-		shareCode := c.Param("code")
-		frontendURL := fmt.Sprintf("%s/public/notes/%s", cfg.Frontend.BaseURL, shareCode)
-		c.Redirect(302, frontendURL)
-	})
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{

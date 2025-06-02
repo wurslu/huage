@@ -1,4 +1,4 @@
-// internal/middleware/auth.go
+// internal/middleware/auth.go - 修复认证中间件，支持query参数token
 package middleware
 
 import (
@@ -14,6 +14,42 @@ import (
 func AuthMiddleware(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := extractToken(c)
+		if token == "" {
+			utils.Unauthorized(c, "缺少访问令牌")
+			c.Abort()
+			return
+		}
+
+		claims, err := utils.ParseToken(token, cfg.JWT.Secret)
+		if err != nil {
+			utils.Unauthorized(c, "无效的访问令牌")
+			c.Abort()
+			return
+		}
+
+		// 验证用户是否存在且活跃
+		var user models.User
+		if err := db.Where("id = ? AND is_active = ?", claims.UserID, true).First(&user).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				utils.Unauthorized(c, "用户不存在或已被禁用")
+			} else {
+				utils.InternalError(c)
+			}
+			c.Abort()
+			return
+		}
+
+		// 将用户信息存储到上下文中
+		c.Set("user", &user)
+		c.Set("user_id", user.ID)
+		c.Next()
+	}
+}
+
+// 修复：支持从查询参数获取token的中间件
+func AuthMiddlewareWithQuery(db *gorm.DB, cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := extractTokenWithQuery(c)
 		if token == "" {
 			utils.Unauthorized(c, "缺少访问令牌")
 			c.Abort()
@@ -76,7 +112,21 @@ func extractToken(c *gin.Context) string {
 		}
 	}
 
-	// 从查询参数获取（用于分享链接等场景）
+	return ""
+}
+
+// 修复：支持从查询参数获取token
+func extractTokenWithQuery(c *gin.Context) string {
+	// 优先从 Authorization header 获取
+	authHeader := c.GetHeader("Authorization")
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			return parts[1]
+		}
+	}
+
+	// 从查询参数获取（用于文件下载等场景）
 	token := c.Query("token")
 	if token != "" {
 		return token

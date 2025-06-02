@@ -1,10 +1,11 @@
----
-# docker-compose.yml
 version: "3.8"
 
 services:
-  app:
-    build: .
+  # Notes Backend API
+  notes-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: notes-backend
     restart: unless-stopped
     ports:
@@ -13,48 +14,127 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=notes_user
-      - DB_PASSWORD=notes_password
+      - DB_PASSWORD=notes_secure_password_2024
       - DB_NAME=notes_db
-      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+      - JWT_SECRET=super-secret-jwt-key-for-production-use-minimum-32-chars-2024
       - GIN_MODE=release
+      - FRONTEND_BASE_URL=https://your-domain.com
+      - LOG_LEVEL=info
     volumes:
-      - ./uploads:/root/uploads
-      - ./logs:/root/logs
-      - ./backup:/root/backup
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./backup:/app/backup
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - notes-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
+  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: notes-postgres
     restart: unless-stopped
     environment:
       - POSTGRES_USER=notes_user
-      - POSTGRES_PASSWORD=notes_password
+      - POSTGRES_PASSWORD=notes_secure_password_2024
       - POSTGRES_DB=notes_db
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backup:/backup
     ports:
-      - "5432:5432"
+      - "5432:5432" # 开发环境可以暴露，生产环境建议移除
     networks:
       - notes-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notes_user -d notes_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
-  # Redis (可选，用于缓存和会话存储)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: notes-redis
-  #   restart: unless-stopped
-  #   ports:
-  #     - "6379:6379"
-  #   networks:
-  #     - notes-network
+  # Redis (可选 - 用于缓存和会话)
+  redis:
+    image: redis:7-alpine
+    container_name: notes-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass redis_password_2024
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379" # 开发环境可以暴露，生产环境建议移除
+    networks:
+      - notes-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+
+  # Nginx (生产环境反向代理)
+  nginx:
+    image: nginx:alpine
+    container_name: notes-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./uploads:/var/www/uploads:ro # 静态文件服务
+    depends_on:
+      - notes-backend
+    networks:
+      - notes-network
+    profiles:
+      - production # 只在生产环境启用
+
+  # 备份服务 (可选)
+  backup:
+    image: postgres:15-alpine
+    container_name: notes-backup
+    restart: "no"
+    environment:
+      - PGHOST=postgres
+      - PGUSER=notes_user
+      - PGPASSWORD=notes_secure_password_2024
+      - PGDATABASE=notes_db
+    volumes:
+      - ./backup:/backup
+      - ./scripts:/scripts:ro
+    depends_on:
+      - postgres
+    networks:
+      - notes-network
+    profiles:
+      - backup # 手动启动备份
+    command: /scripts/backup.sh
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
+    driver: local
 
 networks:
   notes-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

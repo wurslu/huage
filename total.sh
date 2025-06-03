@@ -633,50 +633,130 @@ setup_firewall() {
 }
 
 clone_project() {
-    log_step "克隆项目代码"
+    log_step "准备项目代码"
 
-    if [ -d "$PROJECT_DIR" ]; then
-        log_info "备份现有项目目录..."
-        mv $PROJECT_DIR $PROJECT_DIR.backup.$(date +%Y%m%d_%H%M%S)
+    if [ ! -d "$PROJECT_DIR" ]; then
+        mkdir -p $PROJECT_DIR
     fi
-
-    mkdir -p $PROJECT_DIR
+    
     cd $PROJECT_DIR
 
-    log_info "从 $GIT_REPO 克隆项目..."
+    PROJECT_EXISTS=false
+    
+    if [ -d ".git" ]; then
+        log_info "检测到 .git 目录，项目已存在"
+        PROJECT_EXISTS=true
+        
+        if git remote -v 2>/dev/null | grep -q "$GIT_REPO" || git remote -v 2>/dev/null | grep -q "huage"; then
+            log_info "Git 仓库匹配，使用现有项目"
+        else
+            log_warn "Git 仓库不匹配，但继续使用现有项目"
+        fi
+    fi
+    
+    if [ -f "go.mod" ] && [ -f "cmd/server/main.go" ]; then
+        log_info "检测到项目关键文件，项目已存在"
+        PROJECT_EXISTS=true
+    fi
+    
+    if [ -f "/opt/notes-backend.tar.gz" ] || [ -f "/opt/notes-backend.zip" ]; then
+        log_info "检测到上传的项目压缩包"
+        if [ "$PROJECT_EXISTS" = false ]; then
+            if [ -f "/opt/notes-backend.tar.gz" ]; then
+                log_info "解压 tar.gz 文件..."
+                tar -xzf /opt/notes-backend.tar.gz
+            elif [ -f "/opt/notes-backend.zip" ]; then
+                log_info "解压 zip 文件..."
+                unzip -q /opt/notes-backend.zip
+            fi
+            PROJECT_EXISTS=true
+        fi
+    fi
+    
+    if [ -d "/opt/notes-backend-uploaded" ]; then
+        log_info "检测到上传的项目目录"
+        if [ "$PROJECT_EXISTS" = false ]; then
+            log_info "复制上传的项目文件..."
+            cp -r /opt/notes-backend-uploaded/* . 2>/dev/null || cp -r /opt/notes-backend-uploaded/. .
+            PROJECT_EXISTS=true
+        fi
+    fi
 
-    if git clone $GIT_REPO .; then
-        log_success "项目克隆成功"
-    else
-        log_error "项目克隆失败"
-        echo -e "\n${YELLOW}可能的原因和解决方案：${NC}"
-        echo -e "1. ${CYAN}仓库地址错误${NC} - 请检查 Git 仓库 URL"
-        echo -e "2. ${CYAN}私有仓库权限${NC} - 请配置 SSH 密钥或使用 Personal Access Token"
-        echo -e "3. ${CYAN}网络问题${NC} - 请检查网络连接"
-        echo -e "\n${CYAN}SSH 密钥配置方法：${NC}"
-        echo -e "   ssh-keygen -t rsa -b 4096 -C \"your_email@example.com\""
-        echo -e "   cat ~/.ssh/id_rsa.pub  # 复制公钥到 GitHub/GitLab"
-        echo -e "\n${CYAN}HTTPS 认证方法：${NC}"
-        echo -e "   git clone https://username:token@github.com/user/repo.git"
+    if [ "$PROJECT_EXISTS" = false ]; then
+        log_info "项目不存在，从 Git 仓库克隆..."
+        
+        if [ "$(ls -A .)" ]; then
+            log_info "备份现有目录内容..."
+            mv * ../notes-backend.backup.$(date +%Y%m%d_%H%M%S)/ 2>/dev/null || true
+        fi
+        
+        log_info "从 $GIT_REPO 克隆项目..."
+        if git clone $GIT_REPO .; then
+            log_success "项目克隆成功"
+            PROJECT_EXISTS=true
+        else
+            log_error "项目克隆失败"
+            echo -e "\n${YELLOW}解决方案：${NC}"
+            echo -e "1. ${CYAN}手动上传项目文件${NC}"
+            echo -e "   - 在本地打包: tar -czf notes-backend.tar.gz --exclude='.git' ."
+            echo -e "   - 上传到服务器: scp notes-backend.tar.gz root@server:/opt/"
+            echo -e "   - 重新运行脚本"
+            echo -e ""
+            echo -e "2. ${CYAN}解决网络问题${NC}"
+            echo -e "   - 配置代理或更换网络环境"
+            echo -e "   - 使用 SSH 方式克隆"
+            echo -e ""
+            echo -e "3. ${CYAN}直接在当前目录放置项目文件${NC}"
+            echo -e "   - 将项目文件复制到: $PROJECT_DIR"
+            echo -e "   - 确保包含 go.mod 和 cmd/server/main.go"
+            exit 1
+        fi
+    fi
+
+    log_info "验证项目结构..."
+    REQUIRED_FILES=("go.mod" "cmd/server/main.go")
+    MISSING_FILES=()
+    
+    for file in "${REQUIRED_FILES[@]}"; do
+        if [ ! -f "$file" ]; then
+            MISSING_FILES+=("$file")
+        fi
+    done
+    
+    if [ ${#MISSING_FILES[@]} -gt 0 ]; then
+        log_error "项目结构不完整，缺少以下文件："
+        for file in "${MISSING_FILES[@]}"; do
+            echo -e "   ❌ $file"
+        done
+        echo -e ""
+        echo -e "${YELLOW}当前目录内容：${NC}"
+        ls -la
+        echo -e ""
+        echo -e "${CYAN}解决方案：${NC}"
+        echo -e "1. 确保上传了完整的项目文件"
+        echo -e "2. 检查项目结构是否正确"
+        echo -e "3. 重新上传或克隆项目"
         exit 1
     fi
 
-    log_info "检查项目结构..."
-    REQUIRED_FILES=("go.mod" "cmd/server/main.go")
-    for file in "${REQUIRED_FILES[@]}"; do
-        if [ ! -f "$file" ]; then
-            log_error "缺少必要文件: $file"
-            echo -e "${YELLOW}请确保这是一个正确的 Go 项目，包含：${NC}"
-            echo -e "   • go.mod (Go 模块文件)"
-            echo -e "   • cmd/server/main.go (主程序入口)"
-            exit 1
-        fi
-    done
+    log_success "项目结构验证通过"
+    if [ -f "go.mod" ]; then
+        PROJECT_NAME=$(head -1 go.mod | awk '{print $2}')
+        log_info "项目名称: $PROJECT_NAME"
+    fi
+    
+    if [ -d ".git" ]; then
+        CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+        LAST_COMMIT=$(git log --oneline -1 2>/dev/null | cut -d' ' -f1 || echo "unknown")
+        log_info "Git 分支: $CURRENT_BRANCH"
+        log_info "最后提交: $LAST_COMMIT"
+    fi
 
+    log_info "创建必要目录..."
     mkdir -p {uploads,logs,nginx,backup,scripts}
     chmod -R 755 uploads logs backup
 
-    log_success "项目结构创建完成"
+    log_success "项目代码准备完成"
 }
 
 compile_application() {

@@ -1424,6 +1424,30 @@ handle_conflicts() {
     log_success "环境冲突处理完成"
 }
 
+start_http_service() {
+    systemctl enable notes-nginx-http
+    systemctl start notes-nginx-http
+
+    sleep 5
+
+    if systemctl is-active --quiet notes-nginx-http; then
+        log_success "HTTP 代理启动成功"
+
+        log_info "测试代理访问..."
+        if curl -f http://127.0.0.1/health &>/dev/null; then
+            log_success "HTTP 代理访问正常"
+        else
+            log_warn "HTTP 代理访问测试失败"
+        fi
+    else
+        log_error "HTTP 代理启动失败"
+        echo -e "\n${YELLOW}查看错误日志：${NC}"
+        echo -e "systemctl status notes-nginx-http"
+        echo -e "docker logs notes-nginx"
+        exit 1
+    fi
+}
+
 start_services() {
     log_step "启动应用服务"
 
@@ -1452,7 +1476,6 @@ start_services() {
                 sleep 3
             fi
         done
-
     else
         log_error "Notes Backend 应用启动失败"
         echo -e "\n${YELLOW}查看错误日志：${NC}"
@@ -1461,27 +1484,49 @@ start_services() {
         exit 1
     fi
 
-    log_info "启动 HTTP 代理服务..."
-    systemctl start notes-nginx-http
-
-    sleep 5
-
-    if systemctl is-active --quiet notes-nginx-http; then
-        log_success "HTTP 代理启动成功"
-
-        log_info "测试代理访问..."
-        if curl -f http://127.0.0.1/health &>/dev/null; then
-            log_success "HTTP 代理访问正常"
+    local has_valid_cert=false
+    
+    if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
+        if openssl x509 -in "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" -text -noout 2>/dev/null | grep -i "let's encrypt" >/dev/null; then
+            log_info "检测到有效的 Let's Encrypt 证书"
+            has_valid_cert=true
         else
-            log_warn "HTTP 代理访问测试失败"
+            local issuer=$(openssl x509 -in "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" -noout -issuer 2>/dev/null | grep -o "CN=[^,]*" | cut -d'=' -f2)
+            if [ "$issuer" != "$DOMAIN" ] && [ -n "$issuer" ]; then
+                log_info "检测到第三方颁发的证书: $issuer"
+                has_valid_cert=true
+            else
+                log_info "检测到自签名证书，使用 HTTP 模式"
+            fi
         fi
-
     else
-        log_error "HTTP 代理启动失败"
-        echo -e "\n${YELLOW}查看错误日志：${NC}"
-        echo -e "systemctl status notes-nginx-http"
-        echo -e "docker logs notes-nginx"
-        exit 1
+        log_info "未找到证书文件"
+    fi
+    
+    if [ "$has_valid_cert" = true ]; then
+        log_info "启动 HTTPS 服务..."
+        systemctl enable notes-nginx-https
+        systemctl start notes-nginx-https
+        
+        sleep 5
+        
+        if systemctl is-active --quiet notes-nginx-https; then
+            log_success "HTTPS 代理启动成功"
+            
+            log_info "测试 HTTPS 代理访问..."
+            if curl -f -k https://127.0.0.1/health &>/dev/null; then
+                log_success "HTTPS 代理访问正常"
+            else
+                log_warn "HTTPS 代理访问测试失败，但服务已启动"
+            fi
+        else
+            log_error "HTTPS 代理启动失败，切换到 HTTP"
+            systemctl stop notes-nginx-https 2>/dev/null || true
+            start_http_service
+        fi
+    else
+        log_info "启动 HTTP 服务..."
+        start_http_service
     fi
 
     log_success "所有服务启动完成"
@@ -1492,7 +1537,7 @@ setup_https_option() {
 
     if ! command -v certbot &>/dev/null; then
         log_warn "Certbot 未安装，跳过 HTTPS 配置"
-        return
+        return 1  # 返回 1 表示需要启动 HTTP
     fi
 
     log_info "检查域名解析..."
@@ -1504,13 +1549,86 @@ setup_https_option() {
         read -p "> " SETUP_HTTPS
 
         if [[ "$SETUP_HTTPS" =~ ^[Yy]$ ]]; then
-            setup_real_ssl_certificate
+            if setup_ssl_certificate_first; then
+                log_success "HTTPS 证书配置成功"
+                return 0  # 返回 0 表示可以启动 HTTPS
+            else
+                log_warn "HTTPS 证书配置失败，将启动 HTTP 服务"
+                return 1  # 返回 1 表示需要启动 HTTP
+            fi
         else
-            log_info "跳过 HTTPS 配置，可稍后运行 ./enable-https.sh"
+            log_info "跳过 HTTPS 配置，将启动 HTTP 服务"
+            return 1
         fi
     else
         log_warn "域名解析未配置或未生效"
-        log_info "请先配置域名解析，稍后运行 ./enable-https.sh 启用 HTTPS"
+        log_info "将启动 HTTP 服务，稍后可运行 ./enable-https.sh 启用 HTTPS"
+        return 1
+    fi
+}
+
+setup_ssl_certificate_first() {
+    log_step "申请 SSL 证书 (容器启动前)"
+    
+    log_info "确保端口 80 空闲..."
+    systemctl stop nginx 2>/dev/null || true
+    systemctl stop httpd 2>/dev/null || true
+    systemctl stop apache2 2>/dev/null || true
+    docker stop notes-nginx 2>/dev/null || true
+    
+    sleep 3
+    
+    log_info "清理现有证书配置..."
+    certbot delete --cert-name $DOMAIN --non-interactive 2>/dev/null || true
+    rm -rf /etc/letsencrypt/live/$DOMAIN
+    rm -rf /etc/letsencrypt/archive/$DOMAIN
+    rm -rf /etc/letsencrypt/renewal/$DOMAIN.conf
+    
+    if netstat -tlnp | grep -q ":80 "; then
+        log_warn "端口 80 被占用，强制清理..."
+        local port_pids=$(netstat -tlnp | grep ":80 " | awk '{print $7}' | cut -d'/' -f1 | grep -v '-' | sort -u)
+        for pid in $port_pids; do
+            if [ -n "$pid" ] && [ "$pid" != "-" ]; then
+                log_info "终止进程 $pid"
+                kill -9 "$pid" 2>/dev/null || true
+            fi
+        done
+        
+        sleep 3
+        
+        if netstat -tlnp | grep -q ":80 "; then
+            log_error "无法清理端口 80，证书申请失败"
+            return 1
+        fi
+    fi
+    
+    log_info "获取 Let's Encrypt SSL 证书..."
+    if certbot certonly --standalone \
+        --email $EMAIL \
+        --agree-tos \
+        --no-eff-email \
+        --domains $DOMAIN \
+        --non-interactive \
+        --force-renewal \
+        --verbose; then
+        
+        log_success "SSL 证书获取成功"
+        
+        if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
+            log_success "证书文件验证通过"
+            setup_certificate_renewal
+            return 0
+        else
+            log_error "证书文件不存在，申请可能失败"
+            return 1
+        fi
+    else
+        log_error "SSL 证书获取失败"
+        log_info "可能的原因："
+        log_info "1. 域名解析未指向此服务器"
+        log_info "2. 防火墙阻挡了 80 端口"
+        log_info "3. 网络连接问题"
+        return 1
     fi
 }
 
@@ -1698,7 +1816,11 @@ echo "磁盘: \$(df -h $PROJECT_DIR | awk 'NR==2{print \$5}')"
 EOF
 
     cat >scripts/enable-https.sh <<EOF
+
 echo "🔒 启用 HTTPS..."
+
+DOMAIN="$DOMAIN"
+EMAIL="$EMAIL"
 
 if ! command -v certbot &> /dev/null; then
     echo "❌ Certbot 未安装，无法获取 SSL 证书"
@@ -1706,45 +1828,83 @@ if ! command -v certbot &> /dev/null; then
 fi
 
 echo "🔍 检查域名解析..."
-if ! nslookup $DOMAIN | grep -q "Address"; then
+if ! nslookup \$DOMAIN 8.8.8.8 | grep -q "Address"; then
     echo "❌ 域名解析失败，请先配置域名解析"
-    echo "   域名: $DOMAIN"
+    echo "   域名: \$DOMAIN"
     echo "   应解析到: \$(curl -s ifconfig.me)"
     exit 1
 fi
 
 echo "✅ 域名解析正常"
 
-echo "🛑 停止当前代理服务..."
+echo "🛑 停止所有可能占用端口的服务..."
 systemctl stop notes-nginx-http 2>/dev/null || true
 systemctl stop notes-nginx-https 2>/dev/null || true
+docker stop notes-nginx 2>/dev/null || true
+systemctl stop nginx 2>/dev/null || true
+
+sleep 5
+
+echo "🗑️ 清理现有证书..."
+certbot delete --cert-name \$DOMAIN --non-interactive 2>/dev/null || true
+rm -rf /etc/letsencrypt/live/\$DOMAIN
+rm -rf /etc/letsencrypt/archive/\$DOMAIN
+rm -rf /etc/letsencrypt/renewal/\$DOMAIN.conf
+
+port_pids=\$(netstat -tlnp | grep ":80 " | awk '{print \$7}' | cut -d'/' -f1 | grep -v '-' | sort -u)
+for pid in \$port_pids; do
+    if [ -n "\$pid" ] && [ "\$pid" != "-" ]; then
+        echo "🔧 终止占用端口 80 的进程: \$pid"
+        kill -9 "\$pid" 2>/dev/null || true
+    fi
+done
+
+sleep 3
+
+if netstat -tlnp | grep -q ":80 "; then
+    echo "❌ 端口 80 仍被占用："
+    netstat -tlnp | grep ":80 "
+    echo "请手动停止占用端口的进程后重试"
+    exit 1
+fi
 
 echo "📜 获取 SSL 证书..."
 if certbot certonly --standalone \\
-    --email $EMAIL \\
+    --email \$EMAIL \\
     --agree-tos \\
     --no-eff-email \\
-    --domains $DOMAIN \\
-    --non-interactive; then
+    --domains \$DOMAIN \\
+    --non-interactive \\
+    --force-renewal \\
+    --verbose; then
     
     echo "✅ SSL 证书获取成功"
     
-    systemctl enable notes-nginx-https
-    systemctl disable notes-nginx-http 2>/dev/null || true
-    systemctl start notes-nginx-https
-    
-    if systemctl is-active --quiet notes-nginx-https; then
-        echo "✅ HTTPS 服务启动成功"
-        echo "📱 访问地址: https://$DOMAIN"
+    if [ -f "/etc/letsencrypt/live/\$DOMAIN/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/\$DOMAIN/privkey.pem" ]; then
+        echo "✅ 证书文件验证通过"
         
-        echo "🔍 测试 HTTPS 访问..."
-        if curl -f https://$DOMAIN/health &>/dev/null; then
-            echo "✅ HTTPS 访问测试通过"
+        systemctl enable notes-nginx-https
+        systemctl disable notes-nginx-http 2>/dev/null || true
+        systemctl start notes-nginx-https
+        
+        sleep 5
+        
+        if systemctl is-active --quiet notes-nginx-https; then
+            echo "✅ HTTPS 服务启动成功"
+            echo "📱 访问地址: https://\$DOMAIN"
+            
+            echo "🔍 测试 HTTPS 访问..."
+            if curl -f https://\$DOMAIN/health &>/dev/null; then
+                echo "✅ HTTPS 访问测试通过"
+            else
+                echo "⚠️ HTTPS 访问测试失败，请检查防火墙和安全组配置"
+            fi
         else
-            echo "⚠️ HTTPS 访问测试失败，但服务已启动"
+            echo "❌ HTTPS 服务启动失败，回退到 HTTP"
+            systemctl start notes-nginx-http
         fi
     else
-        echo "❌ HTTPS 服务启动失败，回退到 HTTP"
+        echo "❌ 证书文件验证失败"
         systemctl start notes-nginx-http
     fi
 else
@@ -1753,6 +1913,7 @@ else
     echo "1. 域名是否正确解析到此服务器"
     echo "2. 防火墙/安全组是否开放 80、443 端口"
     echo "3. 网络连接是否正常"
+    echo "4. 域名是否被其他服务占用"
     
     systemctl start notes-nginx-http
     echo "🔄 已回退到 HTTP 模式"
@@ -1849,7 +2010,7 @@ if go build -ldflags="-w -s" -o notes-backend cmd/server/main.go; then
     echo "📊 查看状态: ./scripts/status.sh"
 else
     echo "❌ 编译失败，恢复备份..."
-    if [ -f "notes-backend.backup.*" ]; then
+    if ls notes-backend.backup.* 1> /dev/null 2>&1; then
         mv notes-backend.backup.* notes-backend
         echo "✅ 已恢复到备份版本"
     fi
@@ -2130,7 +2291,7 @@ cleanup_on_error() {
 }
 
 main() {
-    trap cleanup_on_error ERR
+     trap cleanup_on_error ERR
 
     check_root
     show_welcome
@@ -2145,14 +2306,15 @@ main() {
     setup_firewall
     clone_project
     setup_database
-
     compile_application
     create_configuration
-    setup_ssl_certificates
+    setup_ssl_certificates 
     create_system_services
     handle_conflicts
-    start_services
-    setup_https_option
+    
+    setup_https_option 
+    start_services   
+    
     create_management_scripts
     verify_deployment
     show_final_result

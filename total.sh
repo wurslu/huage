@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Notes Backend 完全一键部署脚本
-# 从零开始：克隆项目 -> 安装依赖 -> 编译 -> 部署 -> 启动
-# 适用于全新的服务器环境
 
 set -e
 
@@ -20,7 +17,6 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 log_success() { echo -e "${PURPLE}[SUCCESS]${NC} $1"; }
 
-# 全局变量
 PROJECT_NAME="notes-backend"
 PROJECT_DIR="/opt/$PROJECT_NAME"
 APP_PORT=9191
@@ -28,7 +24,6 @@ DEFAULT_DOMAIN="huage.api.withgo.cn"
 DEFAULT_EMAIL="23200804@qq.com"
 DEFAULT_REPO="https://github.com/wurslu/huage"
 
-# 数据库相关全局变量
 DB_TYPE=""
 DB_NAME=""
 DB_USER=""
@@ -196,7 +191,6 @@ collect_database_config() {
         ;;
     esac
 
-    # 显示配置确认
     echo -e "\n${YELLOW}=== 部署配置确认 ===${NC}"
     echo -e "Git 仓库: ${GREEN}$GIT_REPO${NC}"
     echo -e "域名: ${GREEN}$DOMAIN${NC}"
@@ -228,6 +222,65 @@ collect_database_config() {
         log_warn "部署已取消"
         exit 0
     fi
+}
+
+optimize_network() {
+    log_step "优化网络环境"
+    
+    log_info "配置 DNS 服务器..."
+    cp /etc/resolv.conf /etc/resolv.conf.backup || true
+    cat > /etc/resolv.conf << 'EOF'
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+nameserver 114.114.114.114
+nameserver 223.5.5.5
+EOF
+    
+    log_info "测试网络连接..."
+    if ping -c 3 -W 5 8.8.8.8 &>/dev/null; then
+        log_success "网络连接正常"
+    else
+        log_warn "网络连接可能存在问题"
+    fi
+    
+    if curl -s --connect-timeout 5 ipinfo.io/country 2>/dev/null | grep -q "CN"; then
+        log_info "检测到国内服务器，配置国内源..."
+        
+        if [ "$PACKAGE_MANAGER" = "apt" ]; then
+            cp /etc/apt/sources.list /etc/apt/sources.list.backup || true
+            
+            if grep -q "debian" /etc/os-release; then
+                DEBIAN_VERSION=$(grep VERSION_CODENAME /etc/os-release | cut -d'=' -f2)
+                cat > /etc/apt/sources.list << EOF
+deb https://mirrors.tuna.tsinghua.edu.cn/debian/ $DEBIAN_VERSION main contrib non-free
+deb https://mirrors.tuna.tsinghua.edu.cn/debian/ $DEBIAN_VERSION-updates main contrib non-free
+deb https://mirrors.tuna.tsinghua.edu.cn/debian-security/ $DEBIAN_VERSION-security main contrib non-free
+EOF
+            elif grep -q "ubuntu" /etc/os-release; then
+                UBUNTU_VERSION=$(grep VERSION_CODENAME /etc/os-release | cut -d'=' -f2)
+                cat > /etc/apt/sources.list << EOF
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ $UBUNTU_VERSION main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ $UBUNTU_VERSION-updates main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ $UBUNTU_VERSION-security main restricted universe multiverse
+EOF
+            fi
+            
+            log_info "更新软件包列表..."
+            apt update || {
+                log_warn "国内源更新失败，恢复原始源"
+                mv /etc/apt/sources.list.backup /etc/apt/sources.list 2>/dev/null || true
+                apt update
+            }
+            
+        elif [ "$PACKAGE_MANAGER" = "yum" ]; then
+            yum install -y wget || true
+            mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.backup 2>/dev/null || true
+            wget -O /etc/yum.repos.d/CentOS-Base.repo https://mirrors.aliyun.com/repo/Centos-vault-8.5.2111.repo 2>/dev/null || true
+            yum clean all && yum makecache || true
+        fi
+    fi
+    
+    log_success "网络环境优化完成"
 }
 
 detect_system() {
@@ -401,14 +454,13 @@ install_docker() {
         $PACKAGE_MANAGER install -y yum-utils || $PACKAGE_MANAGER install -y dnf-utils || true
 
         if [ ! -f /etc/yum.repos.d/docker-ce.repo ]; then
-            cat >/etc/yum.repos.d/docker-ce.repo <<'EOF'
-[docker-ce-stable]
-name=Docker CE Stable - $basearch
-baseurl=https://download.docker.com/linux/centos/8/$basearch/stable
-enabled=1
-gpgcheck=1
-gpgkey=https://download.docker.com/linux/centos/gpg
-EOF
+            yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo || {
+                log_warn "官方仓库添加失败，使用系统仓库"
+                $PACKAGE_MANAGER install -y docker
+                systemctl start docker
+                systemctl enable docker
+                return
+            }
         fi
 
         $PACKAGE_MANAGER install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || {
@@ -417,32 +469,93 @@ EOF
         }
 
     elif [ "$PACKAGE_MANAGER" = "apt" ]; then
+        
         apt remove -y docker docker-engine docker.io containerd runc || true
 
-        # 检测系统类型
-        if grep -q "debian" /etc/os-release; then
-            # Debian 系统
-            curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
-        else
-            # Ubuntu 系统
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
-        fi
         apt update
-        apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || {
-            log_warn "官方仓库安装失败，尝试系统仓库..."
-            apt install -y docker.io docker-compose
+
+        apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
+
+        log_info "添加 Docker GPG 密钥..."
+        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg 2>/dev/null || {
+            log_warn "GPG 密钥添加失败，尝试备用方法..."
+            
+            apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 7EA0A9C3F273FCD8 2>/dev/null || {
+                
+                log_warn "官方密钥获取失败，使用系统仓库..."
+                apt install -y docker.io docker-compose
+                systemctl start docker
+                systemctl enable docker
+                
+                if docker --version; then
+                    log_success "Docker 安装成功: $(docker --version)"
+                    return
+                fi
+            }
         }
+
+        if [ -f /usr/share/keyrings/docker-archive-keyring.gpg ]; then
+            if grep -q "debian" /etc/os-release; then
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+            else
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+            fi
+
+            apt update
+
+            apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || {
+                log_warn "官方仓库安装失败，尝试系统仓库..."
+                apt install -y docker.io docker-compose
+            }
+        else
+            log_warn "使用系统仓库安装 Docker..."
+            apt install -y docker.io docker-compose
+        fi
     fi
 
     systemctl start docker
     systemctl enable docker
 
-    if docker --version && docker compose version; then
+    if docker --version; then
         log_success "Docker 安装成功: $(docker --version)"
+        
+        if docker compose version &>/dev/null; then
+            log_success "Docker Compose 安装成功: $(docker compose version)"
+        elif command -v docker-compose &>/dev/null; then
+            log_success "Docker Compose 安装成功: $(docker-compose --version)"
+        else
+            log_warn "Docker Compose 未安装，尝试安装..."
+            
+            DOCKER_COMPOSE_VERSION="v2.21.0"
+            curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || {
+                log_warn "Docker Compose 下载失败，使用包管理器安装..."
+                if [ "$PACKAGE_MANAGER" = "apt" ]; then
+                    apt install -y docker-compose-plugin || apt install -y docker-compose || true
+                elif [ "$PACKAGE_MANAGER" = "yum" ]; then
+                    $PACKAGE_MANAGER install -y docker-compose || true
+                fi
+            }
+            
+            if [ -f /usr/local/bin/docker-compose ]; then
+                chmod +x /usr/local/bin/docker-compose
+            fi
+        fi
+        
+        if docker run --rm hello-world &>/dev/null; then
+            log_success "Docker 测试通过"
+        else
+            log_warn "Docker 测试失败，但安装完成"
+        fi
+        
     else
         log_error "Docker 安装失败"
+        
+        echo -e "\n${YELLOW}Docker 安装故障排除：${NC}"
+        echo -e "1. 检查网络连接：ping -c 3 8.8.8.8"
+        echo -e "2. 检查系统版本：cat /etc/os-release"
+        echo -e "3. 手动安装：apt install docker.io (Debian/Ubuntu)"
+        echo -e "4. 重新运行脚本：bash $0"
+        
         exit 1
     fi
 }
@@ -627,9 +740,37 @@ setup_local_database() {
 
     cd $PROJECT_DIR
 
+    log_info "配置 Docker 镜像加速器..."
+    mkdir -p /etc/docker
+    
+    if [ ! -f /etc/docker/daemon.json ]; then
+        cat > /etc/docker/daemon.json << 'EOF'
+{
+  "registry-mirrors": [
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://hub-mirror.c.163.com",
+    "https://mirror.baidubce.com",
+    "https://ccr.ccs.tencentyun.com"
+  ],
+  "dns": ["8.8.8.8", "8.8.4.4"],
+  "max-concurrent-downloads": 10,
+  "max-concurrent-uploads": 10,
+  "storage-driver": "overlay2"
+}
+EOF
+        
+        log_info "重启 Docker 服务以应用镜像加速器..."
+        systemctl daemon-reload
+        systemctl restart docker
+        sleep 5
+        
+        log_success "Docker 镜像加速器配置完成"
+    else
+        log_info "Docker 镜像加速器已配置"
+    fi
+
     log_info "创建数据库 Docker Compose 配置..."
     cat >docker-compose.db.yml <<EOF
-version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
@@ -655,6 +796,11 @@ services:
                -c checkpoint_completion_target=0.9
                -c wal_buffers=16MB
                -c default_statistics_target=100
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $DB_USER -d $DB_NAME"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
@@ -665,26 +811,90 @@ networks:
     driver: bridge
 EOF
 
+    log_info "预拉取 PostgreSQL 镜像..."
+    if ! docker pull postgres:15-alpine; then
+        log_warn "官方镜像拉取失败，尝试国内镜像..."
+        
+        docker pull registry.cn-hangzhou.aliyuncs.com/library/postgres:15-alpine && \
+        docker tag registry.cn-hangzhou.aliyuncs.com/library/postgres:15-alpine postgres:15-alpine || {
+            log_error "无法拉取 PostgreSQL 镜像，请检查网络连接"
+            
+            echo -e "\n${YELLOW}故障排除建议：${NC}"
+            echo -e "1. 检查网络连接：ping -c 3 8.8.8.8"
+            echo -e "2. 检查 Docker 状态：systemctl status docker"
+            echo -e "3. 手动拉取镜像：docker pull postgres:15-alpine"
+            echo -e "4. 查看 Docker 日志：journalctl -u docker -n 50"
+            
+            exit 1
+        }
+    fi
+
     log_info "启动 PostgreSQL 数据库..."
-    docker compose -f docker-compose.db.yml up -d
+    
+    docker compose -f docker-compose.db.yml down 2>/dev/null || true
+    docker rm -f notes-postgres 2>/dev/null || true
+    
+    if docker compose -f docker-compose.db.yml up -d; then
+        log_success "数据库容器启动成功"
+    else
+        log_error "数据库容器启动失败"
+        
+        echo -e "\n${YELLOW}查看详细错误：${NC}"
+        echo -e "docker compose -f docker-compose.db.yml logs"
+        echo -e "docker logs notes-postgres"
+        
+        exit 1
+    fi
 
     log_info "等待数据库启动..."
-    for i in {1..30}; do
+    
+    for i in {1..60}; do
         if docker exec notes-postgres pg_isready -U $DB_USER -d $DB_NAME &>/dev/null; then
             log_success "数据库启动成功"
             break
         else
-            log_info "等待数据库启动... ($i/30)"
-            sleep 3
+            if [ $i -eq 60 ]; then
+                log_error "数据库启动超时"
+                
+                echo -e "\n${YELLOW}数据库启动故障排除：${NC}"
+                echo -e "1. 查看容器状态：docker ps -a"
+                echo -e "2. 查看容器日志：docker logs notes-postgres"
+                echo -e "3. 检查端口占用：netstat -tlnp | grep 5432"
+                echo -e "4. 重新启动：docker compose -f docker-compose.db.yml restart"
+                
+                echo -e "\n${CYAN}容器状态：${NC}"
+                docker ps -a | grep postgres || echo "未找到 PostgreSQL 容器"
+                
+                echo -e "\n${CYAN}容器日志：${NC}"
+                docker logs notes-postgres 2>/dev/null || echo "无法获取容器日志"
+                
+                exit 1
+            else
+                log_info "等待数据库启动... ($i/60)"
+                sleep 3
+            fi
         fi
     done
 
-    if ! docker exec notes-postgres pg_isready -U $DB_USER -d $DB_NAME &>/dev/null; then
-        log_error "数据库启动失败"
-        exit 1
+    log_info "验证数据库连接..."
+    if docker exec notes-postgres psql -U $DB_USER -d $DB_NAME -c "SELECT version();" &>/dev/null; then
+        log_success "数据库连接验证成功"
+        
+        DB_VERSION=$(docker exec notes-postgres psql -U $DB_USER -d $DB_NAME -t -c "SELECT version();" 2>/dev/null | head -1 | xargs)
+        log_info "数据库版本: $DB_VERSION"
+        
+    else
+        log_warn "数据库连接验证失败，但容器正在运行"
     fi
 
     log_success "本地数据库配置完成"
+    
+    echo -e "\n${CYAN}数据库连接信息：${NC}"
+    echo -e "  主机: localhost"
+    echo -e "  端口: 5432"
+    echo -e "  数据库: $DB_NAME"
+    echo -e "  用户名: $DB_USER"
+    echo -e "  密码: $DB_PASSWORD"
 }
 
 create_configuration() {
@@ -696,7 +906,6 @@ create_configuration() {
     case $DB_TYPE in
     "local")
         cat >.env <<EOF
-# 数据库配置 - 本地数据库
 DB_MODE=local
 LOCAL_DB_HOST=localhost
 LOCAL_DB_PORT=5432
@@ -704,23 +913,19 @@ LOCAL_DB_USER=$DB_USER
 LOCAL_DB_PASSWORD=$DB_PASSWORD
 LOCAL_DB_NAME=$DB_NAME
 
-# 应用配置
 JWT_SECRET="$JWT_SECRET"
 SERVER_PORT=$APP_PORT
 GIN_MODE=release
 FRONTEND_BASE_URL=https://$DOMAIN
 
-# 文件上传配置
 UPLOAD_PATH=/opt/notes-backend/uploads
 MAX_IMAGE_SIZE=10485760
 MAX_DOCUMENT_SIZE=52428800
 MAX_USER_STORAGE=524288000
 
-# 日志配置
 LOG_LEVEL=info
 LOG_FILE=/opt/notes-backend/logs/app.log
 
-# 其他配置
 CORS_ORIGINS=https://$DOMAIN,http://$DOMAIN
 RATE_LIMIT=100
 SESSION_TIMEOUT=7200
@@ -729,27 +934,22 @@ EOF
 
     "vercel")
         cat >.env <<EOF
-# 数据库配置 - Vercel 数据库
 DB_MODE=vercel
 VERCEL_POSTGRES_URL="$VERCEL_POSTGRES_URL"
 
-# 应用配置
 JWT_SECRET="$JWT_SECRET"
 SERVER_PORT=$APP_PORT
 GIN_MODE=release
 FRONTEND_BASE_URL=https://$DOMAIN
 
-# 文件上传配置
 UPLOAD_PATH=/opt/notes-backend/uploads
 MAX_IMAGE_SIZE=10485760
 MAX_DOCUMENT_SIZE=52428800
 MAX_USER_STORAGE=524288000
 
-# 日志配置
 LOG_LEVEL=info
 LOG_FILE=/opt/notes-backend/logs/app.log
 
-# 其他配置
 CORS_ORIGINS=https://$DOMAIN,http://$DOMAIN
 RATE_LIMIT=100
 SESSION_TIMEOUT=7200
@@ -758,7 +958,6 @@ EOF
 
     "custom")
         cat >.env <<EOF
-# 数据库配置 - 自定义数据库
 DB_MODE=custom
 CUSTOM_DB_HOST=$CUSTOM_DB_HOST
 CUSTOM_DB_PORT=$CUSTOM_DB_PORT
@@ -766,23 +965,19 @@ CUSTOM_DB_USER=$CUSTOM_DB_USER
 CUSTOM_DB_PASSWORD=$CUSTOM_DB_PASSWORD
 CUSTOM_DB_NAME=$CUSTOM_DB_NAME
 
-# 应用配置
 JWT_SECRET="$JWT_SECRET"
 SERVER_PORT=$APP_PORT
 GIN_MODE=release
 FRONTEND_BASE_URL=https://$DOMAIN
 
-# 文件上传配置
 UPLOAD_PATH=/opt/notes-backend/uploads
 MAX_IMAGE_SIZE=10485760
 MAX_DOCUMENT_SIZE=52428800
 MAX_USER_STORAGE=524288000
 
-# 日志配置
 LOG_LEVEL=info
 LOG_FILE=/opt/notes-backend/logs/app.log
 
-# 其他配置
 CORS_ORIGINS=https://$DOMAIN,http://$DOMAIN
 RATE_LIMIT=100
 SESSION_TIMEOUT=7200
@@ -1276,7 +1471,6 @@ setup_certificate_renewal() {
     log_info "配置证书自动续期..."
 
     cat >/usr/local/bin/renew-ssl-certificates.sh <<EOF
-#!/bin/bash
 echo "\$(date): 开始检查证书续期" >> /var/log/ssl-renewal.log
 
 systemctl stop notes-nginx-https 2>/dev/null || systemctl stop notes-nginx-http 2>/dev/null
@@ -1319,11 +1513,8 @@ create_management_scripts() {
     mkdir -p scripts
 
     cat >scripts/start.sh <<EOF
-#!/bin/bash
 echo "🚀 启动 Notes Backend 服务..."
 
-# 只有本地数据库才需要检查数据库状态
-# 检查是否存在本地数据库配置文件
 if [ -f "docker-compose.db.yml" ]; then
     if ! docker exec notes-postgres pg_isready -U notes_user -d notes_db &>/dev/null 2>&1; then
         echo "📦 启动数据库..."
@@ -1356,9 +1547,7 @@ echo "🔍 状态检查: ./scripts/status.sh"
 echo "🔒 启用HTTPS: ./scripts/enable-https.sh"
 EOF
 
-    # 其他脚本保持原样...
     cat >scripts/stop.sh <<'EOF'
-#!/bin/bash
 echo "🛑 停止 Notes Backend 服务..."
 
 systemctl stop notes-nginx-https 2>/dev/null || true
@@ -1369,7 +1558,6 @@ echo "✅ 所有服务已停止"
 EOF
 
     cat >scripts/restart.sh <<'EOF'
-#!/bin/bash
 echo "🔄 重启 Notes Backend 服务..."
 
 systemctl stop notes-nginx-https 2>/dev/null || true
@@ -1391,7 +1579,6 @@ fi
 EOF
 
     cat >scripts/status.sh <<EOF
-#!/bin/bash
 echo "📊 Notes Backend 服务状态"
 echo "========================================"
 
@@ -1431,7 +1618,6 @@ echo "磁盘: \$(df -h $PROJECT_DIR | awk 'NR==2{print \$5}')"
 EOF
 
     cat >scripts/enable-https.sh <<EOF
-#!/bin/bash
 echo "🔒 启用 HTTPS..."
 
 if ! command -v certbot &> /dev/null; then
@@ -1494,7 +1680,6 @@ fi
 EOF
 
     cat >scripts/logs.sh <<'EOF'
-#!/bin/bash
 echo "📝 Notes Backend 日志查看"
 echo "========================================"
 echo "选择要查看的日志:"
@@ -1548,7 +1733,6 @@ esac
 EOF
 
     cat >scripts/update.sh <<EOF
-#!/bin/bash
 echo "🔄 更新 Notes Backend..."
 
 cd $PROJECT_DIR
@@ -1752,7 +1936,6 @@ EOF
     echo -e "\n${CYAN}🔐 安全信息:${NC}"
     echo -e "   🔑 JWT 密钥: ${YELLOW}$JWT_SECRET${NC}"
 
-    # 根据数据库类型显示不同信息
     case $DB_TYPE in
         "local")
             echo -e "   🗄️ 数据库: ${GREEN}本地 Docker PostgreSQL${NC}"
@@ -1795,7 +1978,6 @@ EOF
     echo -e "   🌍 域名解析: ${YELLOW}nslookup $DOMAIN${NC}"
     echo -e "   🔄 重置服务: ${YELLOW}./restart.sh${NC}"
 
-    # 根据数据库类型显示不同的故障排除信息
     if [ "$DB_TYPE" = "local" ]; then
         echo -e "   🗄️ 数据库状态: ${YELLOW}docker exec notes-postgres pg_isready -U $DB_USER -d $DB_NAME${NC}"
         echo -e "   🗄️ 数据库日志: ${YELLOW}docker logs notes-postgres${NC}"
@@ -1820,7 +2002,6 @@ EOF
     echo -e "   • 使用 ${YELLOW}./scripts/update.sh${NC} 更新到最新版本"
     echo -e "   • 查看 ${YELLOW}./logs.sh${NC} 快速排查问题"
 
-    # 根据数据库类型显示特定的使用技巧
     if [ "$DB_TYPE" = "local" ]; then
         echo -e "   • 数据库备份: ${YELLOW}docker exec notes-postgres pg_dump -U $DB_USER $DB_NAME > backup.sql${NC}"
         echo -e "   • 数据库还原: ${YELLOW}docker exec -i notes-postgres psql -U $DB_USER $DB_NAME < backup.sql${NC}"
@@ -1876,6 +2057,7 @@ main() {
     collect_user_input
     collect_database_config
     detect_system
+    optimize_network
     install_basic_tools
     install_go
     install_docker

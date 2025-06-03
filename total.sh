@@ -28,6 +28,18 @@ DEFAULT_DOMAIN="huage.api.withgo.cn"
 DEFAULT_EMAIL="23200804@qq.com"
 DEFAULT_REPO="https://github.com/wurslu/huage"
 
+# 数据库相关全局变量
+DB_TYPE=""
+DB_NAME=""
+DB_USER=""
+DB_PASSWORD=""
+VERCEL_POSTGRES_URL=""
+CUSTOM_DB_HOST=""
+CUSTOM_DB_PORT=""
+CUSTOM_DB_USER=""
+CUSTOM_DB_PASSWORD=""
+CUSTOM_DB_NAME=""
+
 check_root() {
     if [ "$EUID" -ne 0 ]; then
         log_error "请使用 root 用户运行此脚本"
@@ -39,7 +51,7 @@ check_root() {
 show_welcome() {
     clear
     echo -e "${CYAN}"
-    cat << 'EOF'
+    cat <<'EOF'
     ███╗   ██╗ ██████╗ ████████╗███████╗███████╗
     ████╗  ██║██╔═══██╗╚══██╔══╝██╔════╝██╔════╝
     ██╔██╗ ██║██║   ██║   ██║   █████╗  ███████╗
@@ -54,7 +66,7 @@ show_welcome() {
     ✨ 新服务器一条命令搞定！
 EOF
     echo -e "${NC}"
-    
+
     echo -e "${YELLOW}📋 此脚本将执行以下操作：${NC}"
     echo -e "   1. 检测系统环境"
     echo -e "   2. 安装基础依赖（Git、Docker、Go、Nginx等）"
@@ -71,35 +83,120 @@ EOF
 
 collect_user_input() {
     log_step "收集部署配置信息"
-    
+
+    echo -e "${CYAN}请选择数据库类型：${NC}"
+    echo -e "${YELLOW}1.${NC} 本地 Docker PostgreSQL (推荐新手)"
+    echo -e "${YELLOW}2.${NC} Vercel Postgres (云数据库)"
+    echo -e "${YELLOW}3.${NC} 自定义数据库"
+    echo -e "\n${CYAN}请选择 (1-3):${NC}"
+    read -p "> " DB_CHOICE
+
+    case $DB_CHOICE in
+    1)
+        DB_TYPE="local"
+        log_info "选择：本地 Docker PostgreSQL"
+        ;;
+    2)
+        DB_TYPE="vercel"
+        log_info "选择：Vercel Postgres"
+        ;;
+    3)
+        DB_TYPE="custom"
+        log_info "选择：自定义数据库"
+        ;;
+    *)
+        log_warn "无效选择，默认使用本地数据库"
+        DB_TYPE="local"
+        ;;
+    esac
+
     echo -e "${CYAN}请输入 Git 仓库地址 (默认: $DEFAULT_REPO):${NC}"
     echo -e "${YELLOW}如果是私有仓库，请确保已配置 SSH 密钥或使用 HTTPS 认证${NC}"
     read -p "> " GIT_REPO
     GIT_REPO=${GIT_REPO:-$DEFAULT_REPO}
-    
+
     echo -e "\n${CYAN}请输入你的域名 (默认: $DEFAULT_DOMAIN):${NC}"
     read -p "> " DOMAIN
     DOMAIN=${DOMAIN:-$DEFAULT_DOMAIN}
-    
+
     echo -e "\n${CYAN}请输入你的邮箱 (默认: $DEFAULT_EMAIL):${NC}"
     read -p "> " EMAIL
     EMAIL=${EMAIL:-$DEFAULT_EMAIL}
-    
-    echo -e "\n${CYAN}请输入 Vercel Postgres 数据库连接字符串:${NC}"
-    echo -e "${YELLOW}格式: postgresql://user:password@host:5432/database?sslmode=require${NC}"
-    read -p "> " VERCEL_POSTGRES_URL
-    while [[ -z "$VERCEL_POSTGRES_URL" ]]; do
-        log_error "数据库连接字符串不能为空"
-        read -p "> " VERCEL_POSTGRES_URL
-    done
-    
+
     echo -e "\n${CYAN}请设置 JWT 密钥 (留空自动生成):${NC}"
     read -p "> " JWT_SECRET
     if [[ -z "$JWT_SECRET" ]]; then
         JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
         log_info "自动生成 JWT 密钥: $JWT_SECRET"
     fi
-    
+}
+
+collect_database_config() {
+    echo -e "\n${CYAN}数据库配置：${NC}"
+
+    case $DB_TYPE in
+    "local")
+        echo -e "${YELLOW}数据库名称 (默认: notes_db):${NC}"
+        read -p "> " DB_NAME
+        DB_NAME=${DB_NAME:-notes_db}
+
+        echo -e "${YELLOW}数据库用户名 (默认: notes_user):${NC}"
+        read -p "> " DB_USER
+        DB_USER=${DB_USER:-notes_user}
+
+        echo -e "${YELLOW}数据库密码 (留空自动生成):${NC}"
+        read -p "> " DB_PASSWORD
+        if [[ -z "$DB_PASSWORD" ]]; then
+            DB_PASSWORD=$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16)
+            log_info "自动生成数据库密码: $DB_PASSWORD"
+        fi
+        ;;
+
+    "vercel")
+        echo -e "${YELLOW}请输入 Vercel Postgres 数据库连接字符串:${NC}"
+        echo -e "${CYAN}格式: postgresql://user:password@host:5432/database?sslmode=require${NC}"
+        read -p "> " VERCEL_POSTGRES_URL
+        while [[ -z "$VERCEL_POSTGRES_URL" ]]; do
+            log_error "数据库连接字符串不能为空"
+            read -p "> " VERCEL_POSTGRES_URL
+        done
+        ;;
+
+    "custom")
+        echo -e "${YELLOW}数据库主机 (默认: localhost):${NC}"
+        read -p "> " CUSTOM_DB_HOST
+        CUSTOM_DB_HOST=${CUSTOM_DB_HOST:-localhost}
+
+        echo -e "${YELLOW}数据库端口 (默认: 5432):${NC}"
+        read -p "> " CUSTOM_DB_PORT
+        CUSTOM_DB_PORT=${CUSTOM_DB_PORT:-5432}
+
+        echo -e "${YELLOW}数据库名称:${NC}"
+        read -p "> " CUSTOM_DB_NAME
+        while [[ -z "$CUSTOM_DB_NAME" ]]; do
+            log_error "数据库名称不能为空"
+            read -p "> " CUSTOM_DB_NAME
+        done
+
+        echo -e "${YELLOW}数据库用户名:${NC}"
+        read -p "> " CUSTOM_DB_USER
+        while [[ -z "$CUSTOM_DB_USER" ]]; do
+            log_error "数据库用户名不能为空"
+            read -p "> " CUSTOM_DB_USER
+        done
+
+        echo -e "${YELLOW}数据库密码:${NC}"
+        read -s -p "> " CUSTOM_DB_PASSWORD
+        echo
+        while [[ -z "$CUSTOM_DB_PASSWORD" ]]; do
+            log_error "数据库密码不能为空"
+            read -s -p "> " CUSTOM_DB_PASSWORD
+            echo
+        done
+        ;;
+    esac
+
+    # 显示配置确认
     echo -e "\n${YELLOW}=== 部署配置确认 ===${NC}"
     echo -e "Git 仓库: ${GREEN}$GIT_REPO${NC}"
     echo -e "域名: ${GREEN}$DOMAIN${NC}"
@@ -107,6 +204,24 @@ collect_user_input() {
     echo -e "应用端口: ${GREEN}$APP_PORT${NC}"
     echo -e "项目目录: ${GREEN}$PROJECT_DIR${NC}"
     echo -e "JWT 密钥: ${GREEN}$JWT_SECRET${NC}"
+
+    case $DB_TYPE in
+    "local")
+        echo -e "数据库类型: ${GREEN}本地 Docker PostgreSQL${NC}"
+        echo -e "数据库名: ${GREEN}$DB_NAME${NC}"
+        echo -e "数据库用户: ${GREEN}$DB_USER${NC}"
+        ;;
+    "vercel")
+        echo -e "数据库类型: ${GREEN}Vercel Postgres${NC}"
+        echo -e "数据库URL: ${GREEN}${VERCEL_POSTGRES_URL:0:50}...${NC}"
+        ;;
+    "custom")
+        echo -e "数据库类型: ${GREEN}自定义数据库${NC}"
+        echo -e "数据库地址: ${GREEN}$CUSTOM_DB_HOST:$CUSTOM_DB_PORT${NC}"
+        echo -e "数据库名: ${GREEN}$CUSTOM_DB_NAME${NC}"
+        ;;
+    esac
+    
     echo -e "\n${CYAN}确认开始部署？ (y/N):${NC}"
     read -p "> " CONFIRM
     if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
@@ -117,72 +232,72 @@ collect_user_input() {
 
 detect_system() {
     log_step "检测系统信息"
-    
+
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS_ID="$ID"
         OS_NAME="$NAME"
         OS_VERSION="$VERSION_ID"
         log_info "检测到系统: $OS_NAME $OS_VERSION"
-        
+
         case "$OS_ID" in
-            "centos"|"rhel"|"rocky"|"almalinux"|"opencloudos")
+        "centos" | "rhel" | "rocky" | "almalinux" | "opencloudos")
+            PACKAGE_MANAGER="yum"
+            log_info "使用 RHEL 系列部署流程"
+            ;;
+        "ubuntu" | "debian")
+            PACKAGE_MANAGER="apt"
+            log_info "使用 Debian 系列部署流程"
+            ;;
+        *)
+            if command -v yum &>/dev/null; then
                 PACKAGE_MANAGER="yum"
-                log_info "使用 RHEL 系列部署流程"
-                ;;
-            "ubuntu"|"debian")
+                log_info "检测到 yum，使用 RHEL 兼容模式"
+            elif command -v apt &>/dev/null; then
                 PACKAGE_MANAGER="apt"
-                log_info "使用 Debian 系列部署流程"
-                ;;
-            *)
-                if command -v yum &> /dev/null; then
-                    PACKAGE_MANAGER="yum"
-                    log_info "检测到 yum，使用 RHEL 兼容模式"
-                elif command -v apt &> /dev/null; then
-                    PACKAGE_MANAGER="apt"
-                    log_info "检测到 apt，使用 Debian 兼容模式"
-                else
-                    log_error "不支持的系统，请手动安装"
-                    exit 1
-                fi
-                ;;
+                log_info "检测到 apt，使用 Debian 兼容模式"
+            else
+                log_error "不支持的系统，请手动安装"
+                exit 1
+            fi
+            ;;
         esac
     else
         log_error "无法检测系统信息"
         exit 1
     fi
-    
-    if ping -c 1 8.8.8.8 &> /dev/null; then
+
+    if ping -c 1 8.8.8.8 &>/dev/null; then
         log_success "网络连接正常"
     else
         log_error "网络连接失败，请检查网络设置"
         exit 1
     fi
-    
+
     ARCH=$(uname -m)
     case $ARCH in
-        x86_64)
-            log_info "检测到 x86_64 架构"
-            GO_ARCH="amd64"
-            ;;
-        aarch64|arm64)
-            log_info "检测到 ARM64 架构"
-            GO_ARCH="arm64"
-            ;;
-        *)
-            log_error "不支持的架构: $ARCH"
-            exit 1
-            ;;
+    x86_64)
+        log_info "检测到 x86_64 架构"
+        GO_ARCH="amd64"
+        ;;
+    aarch64 | arm64)
+        log_info "检测到 ARM64 架构"
+        GO_ARCH="arm64"
+        ;;
+    *)
+        log_error "不支持的架构: $ARCH"
+        exit 1
+        ;;
     esac
 }
 
 install_basic_tools() {
     log_step "安装基础工具"
-    
+
     if [ "$PACKAGE_MANAGER" = "yum" ]; then
         log_info "更新系统包..."
         $PACKAGE_MANAGER update -y
-        
+
         log_info "安装基础工具..."
         $PACKAGE_MANAGER install -y \
             wget curl git vim nano unzip \
@@ -191,19 +306,19 @@ install_basic_tools() {
             net-tools htop tree || {
             log_warn "部分包安装失败，继续..."
         }
-        
+
         $PACKAGE_MANAGER groupinstall -y "Development Tools" || {
             log_warn "开发工具组安装失败，继续..."
         }
-        
+
         $PACKAGE_MANAGER install -y epel-release || {
             log_warn "EPEL 仓库安装失败，继续..."
         }
-        
+
     elif [ "$PACKAGE_MANAGER" = "apt" ]; then
         log_info "更新包列表..."
         apt update
-        
+
         log_info "安装基础工具..."
         apt install -y \
             wget curl git vim nano unzip \
@@ -213,17 +328,17 @@ install_basic_tools() {
             log_warn "部分包安装失败，继续..."
         }
     fi
-    
+
     log_success "基础工具安装完成"
 }
 
 install_go() {
     log_step "安装 Go 语言环境"
-    
-    if command -v go &> /dev/null; then
+
+    if command -v go &>/dev/null; then
         GO_VERSION=$(go version | cut -d' ' -f3)
         log_info "Go 已安装: $GO_VERSION"
-        
+
         GO_VERSION_NUM=$(echo $GO_VERSION | sed 's/go//' | cut -d'.' -f1,2)
         if [[ $(echo "$GO_VERSION_NUM >= 1.20" | bc -l 2>/dev/null || echo "0") -eq 1 ]]; then
             log_success "Go 版本满足要求"
@@ -233,33 +348,33 @@ install_go() {
             log_warn "Go 版本过低，重新安装..."
         fi
     fi
-    
+
     log_info "下载并安装 Go 1.23..."
-    
+
     cd /tmp
     rm -rf /usr/local/go
-    
+
     GO_URL="https://go.dev/dl/go1.23.0.linux-${GO_ARCH}.tar.gz"
     log_info "下载地址: $GO_URL"
-    
+
     wget -q --show-progress $GO_URL || {
         log_error "Go 下载失败，请检查网络连接"
         exit 1
     }
-    
+
     log_info "安装 Go..."
     tar -C /usr/local -xzf go1.23.0.linux-${GO_ARCH}.tar.gz
-    
+
     if ! grep -q "/usr/local/go/bin" /etc/profile; then
-        echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
-        echo 'export GOPROXY=https://goproxy.cn,direct' >> /etc/profile
-        echo 'export GO111MODULE=on' >> /etc/profile
+        echo 'export PATH=$PATH:/usr/local/go/bin' >>/etc/profile
+        echo 'export GOPROXY=https://goproxy.cn,direct' >>/etc/profile
+        echo 'export GO111MODULE=on' >>/etc/profile
     fi
-    
+
     export PATH=$PATH:/usr/local/go/bin
     export GOPROXY=https://goproxy.cn,direct
     export GO111MODULE=on
-    
+
     if go version; then
         log_success "Go 安装成功: $(go version)"
     else
@@ -270,23 +385,23 @@ install_go() {
 
 install_docker() {
     log_step "安装 Docker"
-    
-    if command -v docker &> /dev/null; then
+
+    if command -v docker &>/dev/null; then
         log_info "Docker 已安装: $(docker --version)"
         systemctl start docker || true
         systemctl enable docker || true
         return
     fi
-    
+
     log_info "安装 Docker..."
-    
+
     if [ "$PACKAGE_MANAGER" = "yum" ]; then
         $PACKAGE_MANAGER remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
-        
+
         $PACKAGE_MANAGER install -y yum-utils || $PACKAGE_MANAGER install -y dnf-utils || true
-        
+
         if [ ! -f /etc/yum.repos.d/docker-ce.repo ]; then
-            cat > /etc/yum.repos.d/docker-ce.repo << 'EOF'
+            cat >/etc/yum.repos.d/docker-ce.repo <<'EOF'
 [docker-ce-stable]
 name=Docker CE Stable - $basearch
 baseurl=https://download.docker.com/linux/centos/8/$basearch/stable
@@ -295,35 +410,35 @@ gpgcheck=1
 gpgkey=https://download.docker.com/linux/centos/gpg
 EOF
         fi
-        
+
         $PACKAGE_MANAGER install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || {
             log_warn "从官方仓库安装失败，尝试系统仓库..."
             $PACKAGE_MANAGER install -y docker
         }
-        
+
     elif [ "$PACKAGE_MANAGER" = "apt" ]; then
-    apt remove -y docker docker-engine docker.io containerd runc || true
-    
-    # 检测系统类型
-    if grep -q "debian" /etc/os-release; then
-        # Debian 系统
-        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    else
-        # Ubuntu 系统
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    fi
+        apt remove -y docker docker-engine docker.io containerd runc || true
+
+        # 检测系统类型
+        if grep -q "debian" /etc/os-release; then
+            # Debian 系统
+            curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
+        else
+            # Ubuntu 系统
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
+        fi
         apt update
         apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || {
-        log_warn "官方仓库安装失败，尝试系统仓库..."
-        apt install -y docker.io docker-compose
-    }
+            log_warn "官方仓库安装失败，尝试系统仓库..."
+            apt install -y docker.io docker-compose
+        }
     fi
-    
+
     systemctl start docker
     systemctl enable docker
-    
+
     if docker --version && docker compose version; then
         log_success "Docker 安装成功: $(docker --version)"
     else
@@ -334,31 +449,31 @@ EOF
 
 install_certbot() {
     log_step "安装 Certbot"
-    
-    if command -v certbot &> /dev/null; then
+
+    if command -v certbot &>/dev/null; then
         log_info "Certbot 已安装: $(certbot --version)"
         return
     fi
-    
+
     log_info "安装 Certbot..."
-    
+
     if [ "$PACKAGE_MANAGER" = "yum" ]; then
         $PACKAGE_MANAGER install -y python3 python3-pip || {
             log_warn "Python3 安装失败"
         }
-        
+
         pip3 install --upgrade pip || true
         pip3 install certbot || {
             log_warn "Certbot 安装失败，继续..."
         }
-        
+
     elif [ "$PACKAGE_MANAGER" = "apt" ]; then
         apt install -y certbot python3-certbot-nginx || {
             log_warn "Certbot 安装失败，继续..."
         }
     fi
-    
-    if command -v certbot &> /dev/null; then
+
+    if command -v certbot &>/dev/null; then
         log_success "Certbot 安装成功: $(certbot --version)"
     else
         log_warn "Certbot 安装失败，将跳过 SSL 证书配置"
@@ -367,22 +482,22 @@ install_certbot() {
 
 setup_firewall() {
     log_step "配置防火墙"
-    
+
     if [ "$PACKAGE_MANAGER" = "yum" ]; then
         systemctl start firewalld || true
         systemctl enable firewalld || true
-        
+
         firewall-cmd --permanent --add-port=22/tcp || true
         firewall-cmd --permanent --add-port=80/tcp || true
         firewall-cmd --permanent --add-port=443/tcp || true
         firewall-cmd --permanent --add-port=$APP_PORT/tcp || true
-        
+
         firewall-cmd --permanent --add-service=ssh || true
         firewall-cmd --permanent --add-service=http || true
         firewall-cmd --permanent --add-service=https || true
-        
+
         firewall-cmd --reload || true
-        
+
     elif [ "$PACKAGE_MANAGER" = "apt" ]; then
         ufw --force enable || true
         ufw allow 22/tcp || true
@@ -390,9 +505,9 @@ setup_firewall() {
         ufw allow 443/tcp || true
         ufw allow $APP_PORT/tcp || true
     fi
-    
+
     log_success "防火墙配置完成"
-    
+
     echo -e "\n${YELLOW}🔥 重要提醒：云服务器安全组配置${NC}"
     echo -e "${CYAN}请确保在云服务商控制台配置以下安全组规则：${NC}"
     echo -e "   • ${GREEN}TCP:22${NC}   (SSH 管理)"
@@ -406,18 +521,18 @@ setup_firewall() {
 
 clone_project() {
     log_step "克隆项目代码"
-    
+
     if [ -d "$PROJECT_DIR" ]; then
         log_info "备份现有项目目录..."
         mv $PROJECT_DIR $PROJECT_DIR.backup.$(date +%Y%m%d_%H%M%S)
     fi
-    
+
     mkdir -p $PROJECT_DIR
     cd $PROJECT_DIR
-    
+
     log_info "从 $GIT_REPO 克隆项目..."
-    
-    if git clone $GIT_REPO . ; then
+
+    if git clone $GIT_REPO .; then
         log_success "项目克隆成功"
     else
         log_error "项目克隆失败"
@@ -432,7 +547,7 @@ clone_project() {
         echo -e "   git clone https://username:token@github.com/user/repo.git"
         exit 1
     fi
-    
+
     log_info "检查项目结构..."
     REQUIRED_FILES=("go.mod" "cmd/server/main.go")
     for file in "${REQUIRED_FILES[@]}"; do
@@ -444,34 +559,34 @@ clone_project() {
             exit 1
         fi
     done
-    
+
     mkdir -p {uploads,logs,nginx,backup,scripts}
     chmod -R 755 uploads logs backup
-    
+
     log_success "项目结构创建完成"
 }
 
 compile_application() {
     log_step "编译 Go 应用"
-    
+
     cd $PROJECT_DIR
-    
+
     export PATH=$PATH:/usr/local/go/bin
     export GOPROXY=https://goproxy.cn,direct
     export GO111MODULE=on
     export CGO_ENABLED=0
     export GOOS=linux
     export GOARCH=$GO_ARCH
-    
+
     log_info "检查 Go 模块..."
     if [ ! -f "go.mod" ]; then
         log_error "未找到 go.mod 文件"
         exit 1
     fi
-    
+
     log_info "Go 版本: $(go version)"
     log_info "项目模块: $(head -1 go.mod)"
-    
+
     log_info "下载 Go 依赖..."
     go mod download || {
         log_error "依赖下载失败"
@@ -481,12 +596,12 @@ compile_application() {
         echo -e "   • 尝试：go mod tidy"
         exit 1
     }
-    
+
     log_info "整理依赖关系..."
     go mod tidy
-    
+
     log_info "编译应用程序..."
-    
+
     if go build -ldflags="-w -s" -trimpath -o notes-backend cmd/server/main.go; then
         chmod +x notes-backend
         log_success "应用编译成功"
@@ -499,7 +614,7 @@ compile_application() {
         echo -e "   • 检查入口文件路径"
         exit 1
     fi
-    
+
     if ./notes-backend --help &>/dev/null || ./notes-backend -h &>/dev/null || true; then
         log_success "二进制文件验证通过"
     else
@@ -507,14 +622,114 @@ compile_application() {
     fi
 }
 
+setup_local_database() {
+    log_step "配置本地 PostgreSQL 数据库"
+
+    cd $PROJECT_DIR
+
+    log_info "创建数据库 Docker Compose 配置..."
+    cat >docker-compose.db.yml <<EOF
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: notes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: $DB_NAME
+      POSTGRES_USER: $DB_USER
+      POSTGRES_PASSWORD: $DB_PASSWORD
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - notes-network
+    command: >
+      postgres -c max_connections=200
+               -c shared_buffers=256MB
+               -c effective_cache_size=1GB
+               -c maintenance_work_mem=64MB
+               -c checkpoint_completion_target=0.9
+               -c wal_buffers=16MB
+               -c default_statistics_target=100
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  notes-network:
+    driver: bridge
+EOF
+
+    log_info "启动 PostgreSQL 数据库..."
+    docker compose -f docker-compose.db.yml up -d
+
+    log_info "等待数据库启动..."
+    for i in {1..30}; do
+        if docker exec notes-postgres pg_isready -U $DB_USER -d $DB_NAME &>/dev/null; then
+            log_success "数据库启动成功"
+            break
+        else
+            log_info "等待数据库启动... ($i/30)"
+            sleep 3
+        fi
+    done
+
+    if ! docker exec notes-postgres pg_isready -U $DB_USER -d $DB_NAME &>/dev/null; then
+        log_error "数据库启动失败"
+        exit 1
+    fi
+
+    log_success "本地数据库配置完成"
+}
+
 create_configuration() {
     log_step "创建配置文件"
-    
+
     cd $PROJECT_DIR
-    
+
     log_info "创建 .env 配置文件..."
-    cat > .env << EOF
-# 数据库配置
+    case $DB_TYPE in
+    "local")
+        cat >.env <<EOF
+# 数据库配置 - 本地数据库
+DB_MODE=local
+LOCAL_DB_HOST=localhost
+LOCAL_DB_PORT=5432
+LOCAL_DB_USER=$DB_USER
+LOCAL_DB_PASSWORD=$DB_PASSWORD
+LOCAL_DB_NAME=$DB_NAME
+
+# 应用配置
+JWT_SECRET="$JWT_SECRET"
+SERVER_PORT=$APP_PORT
+GIN_MODE=release
+FRONTEND_BASE_URL=https://$DOMAIN
+
+# 文件上传配置
+UPLOAD_PATH=/opt/notes-backend/uploads
+MAX_IMAGE_SIZE=10485760
+MAX_DOCUMENT_SIZE=52428800
+MAX_USER_STORAGE=524288000
+
+# 日志配置
+LOG_LEVEL=info
+LOG_FILE=/opt/notes-backend/logs/app.log
+
+# 其他配置
+CORS_ORIGINS=https://$DOMAIN,http://$DOMAIN
+RATE_LIMIT=100
+SESSION_TIMEOUT=7200
+EOF
+        ;;
+
+    "vercel")
+        cat >.env <<EOF
+# 数据库配置 - Vercel 数据库
 DB_MODE=vercel
 VERCEL_POSTGRES_URL="$VERCEL_POSTGRES_URL"
 
@@ -539,13 +754,48 @@ CORS_ORIGINS=https://$DOMAIN,http://$DOMAIN
 RATE_LIMIT=100
 SESSION_TIMEOUT=7200
 EOF
-    
+        ;;
+
+    "custom")
+        cat >.env <<EOF
+# 数据库配置 - 自定义数据库
+DB_MODE=custom
+CUSTOM_DB_HOST=$CUSTOM_DB_HOST
+CUSTOM_DB_PORT=$CUSTOM_DB_PORT
+CUSTOM_DB_USER=$CUSTOM_DB_USER
+CUSTOM_DB_PASSWORD=$CUSTOM_DB_PASSWORD
+CUSTOM_DB_NAME=$CUSTOM_DB_NAME
+
+# 应用配置
+JWT_SECRET="$JWT_SECRET"
+SERVER_PORT=$APP_PORT
+GIN_MODE=release
+FRONTEND_BASE_URL=https://$DOMAIN
+
+# 文件上传配置
+UPLOAD_PATH=/opt/notes-backend/uploads
+MAX_IMAGE_SIZE=10485760
+MAX_DOCUMENT_SIZE=52428800
+MAX_USER_STORAGE=524288000
+
+# 日志配置
+LOG_LEVEL=info
+LOG_FILE=/opt/notes-backend/logs/app.log
+
+# 其他配置
+CORS_ORIGINS=https://$DOMAIN,http://$DOMAIN
+RATE_LIMIT=100
+SESSION_TIMEOUT=7200
+EOF
+        ;;
+    esac
+
     chmod 600 .env
     log_success ".env 文件创建完成"
-    
+
     log_info "创建 Nginx HTTP 配置..."
     mkdir -p nginx
-    cat > nginx/nginx-http.conf << EOF
+    cat >nginx/nginx-http.conf <<EOF
 events {
     worker_connections 1024;
 }
@@ -614,9 +864,9 @@ http {
     }
 }
 EOF
-    
+
     log_info "创建 Nginx HTTPS 配置..."
-    cat > nginx/nginx-https.conf << EOF
+    cat >nginx/nginx-https.conf <<EOF
 user nginx;
 worker_processes auto;
 error_log /var/log/nginx/error.log warn;
@@ -709,33 +959,41 @@ http {
     }
 }
 EOF
-    
+
     log_success "Nginx 配置文件创建完成"
 }
 
 setup_ssl_certificates() {
     log_step "配置 SSL 证书目录"
-    
+
     mkdir -p /var/www/certbot
     mkdir -p /etc/letsencrypt/live/$DOMAIN
-    
+
     log_info "创建临时自签名证书..."
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout /etc/letsencrypt/live/$DOMAIN/privkey.pem \
         -out /etc/letsencrypt/live/$DOMAIN/fullchain.pem \
         -subj "/C=CN/ST=State/L=City/O=Organization/OU=IT/CN=$DOMAIN" &>/dev/null
-    
+
     chmod 644 /etc/letsencrypt/live/$DOMAIN/fullchain.pem
     chmod 600 /etc/letsencrypt/live/$DOMAIN/privkey.pem
-    
+
     log_success "SSL 证书目录配置完成"
+}
+
+setup_database() {
+    if [ "$DB_TYPE" = "local" ]; then
+        setup_local_database
+    else
+        log_info "跳过本地数据库设置，使用外部数据库"
+    fi
 }
 
 create_system_services() {
     log_step "创建系统服务"
-    
+
     log_info "创建 notes-backend 系统服务..."
-    cat > /etc/systemd/system/notes-backend.service << EOF
+    cat >/etc/systemd/system/notes-backend.service <<EOF
 [Unit]
 Description=Notes Backend Application
 Documentation=https://github.com/your-repo/notes-backend
@@ -769,9 +1027,9 @@ LimitNPROC=32768
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
     log_info "创建 notes-nginx-http 系统服务..."
-    cat > /etc/systemd/system/notes-nginx-http.service << EOF
+    cat >/etc/systemd/system/notes-nginx-http.service <<EOF
 [Unit]
 Description=Notes Backend Nginx Proxy (HTTP)
 Documentation=https://nginx.org/en/docs/
@@ -805,9 +1063,9 @@ ExecStopPost=-/usr/bin/docker rm notes-nginx
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
     log_info "创建 notes-nginx-https 系统服务..."
-    cat > /etc/systemd/system/notes-nginx-https.service << EOF
+    cat >/etc/systemd/system/notes-nginx-https.service <<EOF
 [Unit]
 Description=Notes Backend Nginx Proxy (HTTPS)
 Documentation=https://nginx.org/en/docs/
@@ -842,16 +1100,16 @@ ExecStopPost=-/usr/bin/docker rm notes-nginx
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
     systemctl daemon-reload
     systemctl enable notes-backend
-    
+
     log_success "系统服务创建完成"
 }
 
 handle_conflicts() {
     log_step "处理端口冲突和环境问题"
-    
+
     log_info "停止可能冲突的服务..."
     systemctl stop nginx 2>/dev/null || true
     systemctl stop httpd 2>/dev/null || true
@@ -859,22 +1117,22 @@ handle_conflicts() {
     systemctl disable nginx 2>/dev/null || true
     systemctl disable httpd 2>/dev/null || true
     systemctl disable apache2 2>/dev/null || true
-    
+
     log_info "清理残留进程..."
     pkill -f nginx || true
     pkill -f httpd || true
     pkill -f apache || true
-    
+
     log_info "重启 Docker 服务..."
     systemctl restart docker
     sleep 5
-    
+
     log_info "检查端口占用情况..."
     if netstat -tlnp | grep -q ":80 "; then
         log_warn "端口 80 仍被占用："
         netstat -tlnp | grep ":80 "
         log_info "尝试解决端口冲突..."
-        
+
         PORT_80_PID=$(netstat -tlnp | grep ":80 " | awk '{print $7}' | cut -d'/' -f1 | head -1)
         if [ -n "$PORT_80_PID" ] && [ "$PORT_80_PID" != "-" ]; then
             log_info "终止占用端口 80 的进程: $PORT_80_PID"
@@ -882,33 +1140,33 @@ handle_conflicts() {
             sleep 2
         fi
     fi
-    
+
     if netstat -tlnp | grep -q ":80 "; then
         log_error "无法解决端口 80 冲突，请手动检查"
         exit 1
     fi
-    
+
     log_success "环境冲突处理完成"
 }
 
 start_services() {
     log_step "启动应用服务"
-    
+
     log_info "启动 Notes Backend 应用..."
     systemctl start notes-backend
-    
+
     log_info "等待应用启动..."
     sleep 10
-    
+
     if systemctl is-active --quiet notes-backend; then
         log_success "Notes Backend 应用启动成功"
-        
+
         if netstat -tlnp | grep -q ":$APP_PORT "; then
             log_success "应用端口 $APP_PORT 监听正常"
         else
             log_warn "应用端口 $APP_PORT 未监听"
         fi
-        
+
         log_info "测试应用健康状态..."
         for i in {1..5}; do
             if curl -f http://127.0.0.1:$APP_PORT/health &>/dev/null; then
@@ -919,7 +1177,7 @@ start_services() {
                 sleep 3
             fi
         done
-        
+
     else
         log_error "Notes Backend 应用启动失败"
         echo -e "\n${YELLOW}查看错误日志：${NC}"
@@ -927,22 +1185,22 @@ start_services() {
         echo -e "journalctl -u notes-backend -f"
         exit 1
     fi
-    
+
     log_info "启动 HTTP 代理服务..."
     systemctl start notes-nginx-http
-    
+
     sleep 5
-    
+
     if systemctl is-active --quiet notes-nginx-http; then
         log_success "HTTP 代理启动成功"
-        
+
         log_info "测试代理访问..."
         if curl -f http://127.0.0.1/health &>/dev/null; then
             log_success "HTTP 代理访问正常"
         else
             log_warn "HTTP 代理访问测试失败"
         fi
-        
+
     else
         log_error "HTTP 代理启动失败"
         echo -e "\n${YELLOW}查看错误日志：${NC}"
@@ -950,26 +1208,26 @@ start_services() {
         echo -e "docker logs notes-nginx"
         exit 1
     fi
-    
+
     log_success "所有服务启动完成"
 }
 
 setup_https_option() {
     log_step "配置 HTTPS 选项"
-    
-    if ! command -v certbot &> /dev/null; then
+
+    if ! command -v certbot &>/dev/null; then
         log_warn "Certbot 未安装，跳过 HTTPS 配置"
         return
     fi
-    
+
     log_info "检查域名解析..."
     if nslookup $DOMAIN 8.8.8.8 | grep -q "Address"; then
         log_success "域名解析正常"
-        
+
         echo -e "\n${CYAN}是否现在配置 HTTPS？ (y/N):${NC}"
         echo -e "${YELLOW}注意：需要确保域名已正确解析到此服务器${NC}"
         read -p "> " SETUP_HTTPS
-        
+
         if [[ "$SETUP_HTTPS" =~ ^[Yy]$ ]]; then
             setup_real_ssl_certificate
         else
@@ -983,22 +1241,22 @@ setup_https_option() {
 
 setup_real_ssl_certificate() {
     log_info "获取 Let's Encrypt SSL 证书..."
-    
+
     systemctl stop notes-nginx-http
-    
+
     if certbot certonly --standalone \
         --email $EMAIL \
         --agree-tos \
         --no-eff-email \
         --domains $DOMAIN \
         --non-interactive; then
-        
+
         log_success "SSL 证书获取成功"
-        
+
         systemctl enable notes-nginx-https
         systemctl disable notes-nginx-http
         systemctl start notes-nginx-https
-        
+
         if systemctl is-active --quiet notes-nginx-https; then
             log_success "HTTPS 服务启动成功"
             setup_certificate_renewal
@@ -1006,7 +1264,7 @@ setup_real_ssl_certificate() {
             log_warn "HTTPS 服务启动失败，回退到 HTTP"
             systemctl start notes-nginx-http
         fi
-        
+
     else
         log_warn "SSL 证书获取失败，继续使用 HTTP"
         log_info "请检查域名解析和防火墙配置"
@@ -1016,8 +1274,8 @@ setup_real_ssl_certificate() {
 
 setup_certificate_renewal() {
     log_info "配置证书自动续期..."
-    
-    cat > /usr/local/bin/renew-ssl-certificates.sh << EOF
+
+    cat >/usr/local/bin/renew-ssl-certificates.sh <<EOF
 #!/bin/bash
 echo "\$(date): 开始检查证书续期" >> /var/log/ssl-renewal.log
 
@@ -1043,23 +1301,40 @@ else
     fi
 fi
 EOF
-    
+
     chmod +x /usr/local/bin/renew-ssl-certificates.sh
-    
-    (crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/renew-ssl-certificates.sh") | crontab -
-    
+
+    (
+        crontab -l 2>/dev/null
+        echo "0 3 * * * /usr/local/bin/renew-ssl-certificates.sh"
+    ) | crontab -
+
     log_success "证书自动续期配置完成"
 }
 
 create_management_scripts() {
     log_step "创建管理脚本"
-    
+
     cd $PROJECT_DIR
     mkdir -p scripts
-    
-    cat > scripts/start.sh << EOF
+
+    cat >scripts/start.sh <<EOF
 #!/bin/bash
 echo "🚀 启动 Notes Backend 服务..."
+
+# 只有本地数据库才需要检查数据库状态
+# 检查是否存在本地数据库配置文件
+if [ -f "docker-compose.db.yml" ]; then
+    if ! docker exec notes-postgres pg_isready -U notes_user -d notes_db &>/dev/null 2>&1; then
+        echo "📦 启动数据库..."
+        cd /opt/notes-backend
+        docker compose -f docker-compose.db.yml up -d
+        echo "⏳ 等待数据库启动..."
+        sleep 15
+    else
+        echo "✅ 数据库已在运行"
+    fi
+fi
 
 systemctl start notes-backend
 
@@ -1080,8 +1355,9 @@ fi
 echo "🔍 状态检查: ./scripts/status.sh"
 echo "🔒 启用HTTPS: ./scripts/enable-https.sh"
 EOF
-    
-    cat > scripts/stop.sh << 'EOF'
+
+    # 其他脚本保持原样...
+    cat >scripts/stop.sh <<'EOF'
 #!/bin/bash
 echo "🛑 停止 Notes Backend 服务..."
 
@@ -1091,8 +1367,8 @@ systemctl stop notes-backend
 
 echo "✅ 所有服务已停止"
 EOF
-    
-    cat > scripts/restart.sh << 'EOF'
+
+    cat >scripts/restart.sh <<'EOF'
 #!/bin/bash
 echo "🔄 重启 Notes Backend 服务..."
 
@@ -1113,8 +1389,8 @@ else
     echo "✅ 服务已重启 (HTTP 模式)"
 fi
 EOF
-    
-    cat > scripts/status.sh << EOF
+
+    cat >scripts/status.sh <<EOF
 #!/bin/bash
 echo "📊 Notes Backend 服务状态"
 echo "========================================"
@@ -1153,8 +1429,8 @@ echo "CPU: \$(top -bn1 | grep "Cpu(s)" | awk '{print \$2}' | awk -F'%' '{print \
 echo "内存: \$(free -h | awk 'NR==2{printf "%.1f%%", \$3*100/\$2 }')"
 echo "磁盘: \$(df -h $PROJECT_DIR | awk 'NR==2{print \$5}')"
 EOF
-    
-    cat > scripts/enable-https.sh << EOF
+
+    cat >scripts/enable-https.sh <<EOF
 #!/bin/bash
 echo "🔒 启用 HTTPS..."
 
@@ -1216,8 +1492,8 @@ else
     echo "🔄 已回退到 HTTP 模式"
 fi
 EOF
-    
-    cat > scripts/logs.sh << 'EOF'
+
+    cat >scripts/logs.sh <<'EOF'
 #!/bin/bash
 echo "📝 Notes Backend 日志查看"
 echo "========================================"
@@ -1270,8 +1546,8 @@ case $choice in
         ;;
 esac
 EOF
-    
-    cat > scripts/update.sh << EOF
+
+    cat >scripts/update.sh <<EOF
 #!/bin/bash
 echo "🔄 更新 Notes Backend..."
 
@@ -1316,31 +1592,31 @@ else
     exit 1
 fi
 EOF
-    
+
     chmod +x scripts/*.sh
-    
+
     ln -sf scripts/start.sh start.sh
     ln -sf scripts/stop.sh stop.sh
     ln -sf scripts/restart.sh restart.sh
     ln -sf scripts/status.sh status.sh
     ln -sf scripts/logs.sh logs.sh
     ln -sf scripts/enable-https.sh enable-https.sh
-    
+
     log_success "管理脚本创建完成"
 }
 
 verify_deployment() {
     log_step "验证部署结果"
-    
+
     log_info "检查服务状态..."
-    
+
     if systemctl is-active --quiet notes-backend; then
         log_success "✅ 应用服务运行正常"
     else
         log_error "❌ 应用服务未运行"
         return 1
     fi
-    
+
     if systemctl is-active --quiet notes-nginx-https; then
         log_success "✅ HTTPS 代理服务运行正常"
         CURRENT_MODE="HTTPS"
@@ -1351,25 +1627,25 @@ verify_deployment() {
         log_error "❌ 代理服务未运行"
         return 1
     fi
-    
+
     log_info "检查端口监听..."
-    
+
     if netstat -tlnp | grep -q ":$APP_PORT "; then
         log_success "✅ 应用端口 $APP_PORT 监听正常"
     else
         log_warn "⚠️ 应用端口 $APP_PORT 未监听"
     fi
-    
+
     if netstat -tlnp | grep -q ":80 "; then
         log_success "✅ HTTP 端口 80 监听正常"
     else
         log_warn "⚠️ HTTP 端口 80 未监听"
     fi
-    
+
     if [ "$CURRENT_MODE" = "HTTPS" ] && netstat -tlnp | grep -q ":443 "; then
         log_success "✅ HTTPS 端口 443 监听正常"
     fi
-    
+
     log_info "检查应用健康状态..."
     for i in {1..3}; do
         if curl -f http://127.0.0.1:$APP_PORT/health &>/dev/null; then
@@ -1380,7 +1656,7 @@ verify_deployment() {
             sleep 3
         fi
     done
-    
+
     log_info "检查代理访问..."
     if [ "$CURRENT_MODE" = "HTTPS" ]; then
         if curl -f -k https://127.0.0.1/health &>/dev/null; then
@@ -1395,14 +1671,14 @@ verify_deployment() {
             log_warn "⚠️ HTTP 代理访问异常"
         fi
     fi
-    
+
     log_success "部署验证完成"
 }
 
 show_final_result() {
     clear
     echo -e "${GREEN}"
-    cat << 'EOF'
+    cat <<'EOF'
     🎉 部署完成！
     ===============================================
     
@@ -1415,7 +1691,7 @@ show_final_result() {
     
 EOF
     echo -e "${NC}"
-    
+
     if systemctl is-active --quiet notes-nginx-https; then
         CURRENT_MODE="HTTPS"
         ACCESS_URL="https://$DOMAIN"
@@ -1425,19 +1701,19 @@ EOF
         ACCESS_URL="http://$DOMAIN"
         PROTOCOL_ICON="🌐"
     fi
-    
+
     echo -e "${CYAN}📱 访问信息:${NC}"
     echo -e "   $PROTOCOL_ICON 当前模式: ${GREEN}$CURRENT_MODE${NC}"
     echo -e "   🌍 主站地址: ${GREEN}$ACCESS_URL${NC}"
     echo -e "   💚 健康检查: ${GREEN}$ACCESS_URL/health${NC}"
     echo -e "   🚀 API 基址: ${GREEN}$ACCESS_URL/api${NC}"
-    
+
     if [ "$CURRENT_MODE" = "HTTP" ]; then
         echo -e "\n${YELLOW}⚠️ 当前运行在 HTTP 模式${NC}"
         echo -e "   🔒 启用 HTTPS: ${CYAN}./enable-https.sh${NC}"
         echo -e "   📋 确保域名解析正确且安全组端口已开放"
     fi
-    
+
     echo -e "\n${CYAN}🔧 快速管理命令:${NC}"
     echo -e "   🚀 启动服务: ${YELLOW}./start.sh${NC}"
     echo -e "   🛑 停止服务: ${YELLOW}./stop.sh${NC}"
@@ -1445,11 +1721,11 @@ EOF
     echo -e "   📊 查看状态: ${YELLOW}./status.sh${NC}"
     echo -e "   📝 查看日志: ${YELLOW}./logs.sh${NC}"
     echo -e "   🔒 启用HTTPS: ${YELLOW}./enable-https.sh${NC}"
-    
+
     echo -e "\n${CYAN}🛠️ 高级管理命令:${NC}"
     echo -e "   🔄 更新应用: ${YELLOW}./scripts/update.sh${NC}"
     echo -e "   📊 实时监控: ${YELLOW}./scripts/monitor.sh${NC}"
-    
+
     echo -e "\n${CYAN}🖥️ 系统服务:${NC}"
     echo -e "   📱 应用服务: ${YELLOW}systemctl {start|stop|restart|status} notes-backend${NC}"
     if [ "$CURRENT_MODE" = "HTTPS" ]; then
@@ -1458,43 +1734,73 @@ EOF
         echo -e "   🌐 HTTP代理: ${YELLOW}systemctl {start|stop|restart|status} notes-nginx-http${NC}"
     fi
     echo -e "   🔄 开机自启: ${GREEN}已启用${NC}"
-    
+
     echo -e "\n${CYAN}🔒 安全配置提醒:${NC}"
     echo -e "   请确保云服务器安全组已开放以下端口："
     echo -e "   • ${GREEN}22${NC} (SSH 管理)"
     echo -e "   • ${GREEN}80${NC} (HTTP 访问)"
     echo -e "   • ${GREEN}443${NC} (HTTPS 访问)"
     echo -e "   来源设置为: ${YELLOW}0.0.0.0/0${NC}"
-    
+
     echo -e "\n${CYAN}📁 重要目录:${NC}"
     echo -e "   📂 项目目录: ${GREEN}$PROJECT_DIR${NC}"
     echo -e "   ⚙️ 配置文件: ${GREEN}$PROJECT_DIR/.env${NC}"
     echo -e "   📁 上传目录: ${GREEN}$PROJECT_DIR/uploads${NC}"
     echo -e "   📝 日志目录: ${GREEN}$PROJECT_DIR/logs${NC}"
     echo -e "   🔧 脚本目录: ${GREEN}$PROJECT_DIR/scripts${NC}"
-    
+
     echo -e "\n${CYAN}🔐 安全信息:${NC}"
     echo -e "   🔑 JWT 密钥: ${YELLOW}$JWT_SECRET${NC}"
-    echo -e "   🗄️ 数据库: ${GREEN}Vercel Postgres${NC}"
+
+    # 根据数据库类型显示不同信息
+    case $DB_TYPE in
+        "local")
+            echo -e "   🗄️ 数据库: ${GREEN}本地 Docker PostgreSQL${NC}"
+            echo -e "   📊 数据库状态: ${GREEN}容器运行中${NC}"
+            if [ -n "$DB_NAME" ]; then
+                echo -e "   📋 数据库名: ${GREEN}$DB_NAME${NC}"
+            fi
+            ;;
+        "vercel")
+            echo -e "   🗄️ 数据库: ${GREEN}Vercel Postgres (云数据库)${NC}"
+            echo -e "   🌐 连接状态: ${GREEN}已配置${NC}"
+            ;;
+        "custom")
+            echo -e "   🗄️ 数据库: ${GREEN}自定义数据库${NC}"
+            if [ -n "$CUSTOM_DB_HOST" ] && [ -n "$CUSTOM_DB_NAME" ]; then
+                echo -e "   📋 数据库地址: ${GREEN}$CUSTOM_DB_HOST:$CUSTOM_DB_PORT/$CUSTOM_DB_NAME${NC}"
+            fi
+            ;;
+        *)
+            echo -e "   🗄️ 数据库: ${GREEN}已配置${NC}"
+            ;;
+    esac
+
     if [ "$CURRENT_MODE" = "HTTPS" ]; then
         echo -e "   🔒 SSL 证书: ${GREEN}Let's Encrypt (自动续期)${NC}"
     else
         echo -e "   🔒 SSL 证书: ${YELLOW}未配置${NC}"
     fi
-    
+
     echo -e "\n${CYAN}🚀 API 端点示例:${NC}"
     echo -e "   👤 用户注册: ${YELLOW}POST $ACCESS_URL/api/auth/register${NC}"
     echo -e "   🔑 用户登录: ${YELLOW}POST $ACCESS_URL/api/auth/login${NC}"
     echo -e "   📄 获取笔记: ${YELLOW}GET $ACCESS_URL/api/notes${NC}"
     echo -e "   ✍️ 创建笔记: ${YELLOW}POST $ACCESS_URL/api/notes${NC}"
-    
+
     echo -e "\n${CYAN}🛠️ 故障排除:${NC}"
     echo -e "   📱 应用日志: ${YELLOW}journalctl -u notes-backend -f${NC}"
     echo -e "   🌐 代理日志: ${YELLOW}docker logs notes-nginx${NC}"
     echo -e "   🔌 端口检查: ${YELLOW}netstat -tlnp | grep -E ':80|:443|:$APP_PORT'${NC}"
     echo -e "   🌍 域名解析: ${YELLOW}nslookup $DOMAIN${NC}"
     echo -e "   🔄 重置服务: ${YELLOW}./restart.sh${NC}"
-    
+
+    # 根据数据库类型显示不同的故障排除信息
+    if [ "$DB_TYPE" = "local" ]; then
+        echo -e "   🗄️ 数据库状态: ${YELLOW}docker exec notes-postgres pg_isready -U $DB_USER -d $DB_NAME${NC}"
+        echo -e "   🗄️ 数据库日志: ${YELLOW}docker logs notes-postgres${NC}"
+    fi
+
     echo -e "\n${CYAN}📚 下一步操作:${NC}"
     echo -e "   1. 🌍 测试访问: ${GREEN}$ACCESS_URL${NC}"
     echo -e "   2. 🔒 配置安全组（如果外网无法访问）"
@@ -1507,18 +1813,24 @@ EOF
         echo -e "   4. 📝 创建第一条笔记"
         echo -e "   5. 🔄 设置定期备份"
     fi
-    
+
     echo -e "\n${CYAN}💡 使用技巧:${NC}"
     echo -e "   • 使用 ${YELLOW}./scripts/monitor.sh${NC} 实时监控服务状态"
     echo -e "   • 定期执行 ${YELLOW}./scripts/backup.sh${NC} 备份数据"
     echo -e "   • 使用 ${YELLOW}./scripts/update.sh${NC} 更新到最新版本"
     echo -e "   • 查看 ${YELLOW}./logs.sh${NC} 快速排查问题"
-    
+
+    # 根据数据库类型显示特定的使用技巧
+    if [ "$DB_TYPE" = "local" ]; then
+        echo -e "   • 数据库备份: ${YELLOW}docker exec notes-postgres pg_dump -U $DB_USER $DB_NAME > backup.sql${NC}"
+        echo -e "   • 数据库还原: ${YELLOW}docker exec -i notes-postgres psql -U $DB_USER $DB_NAME < backup.sql${NC}"
+    fi
+
     echo -e "\n${PURPLE}===============================================${NC}"
     echo -e "${GREEN}✨ Notes Backend 完全部署成功！${NC}"
     echo -e "${GREEN}🎉 祝您使用愉快！${NC}"
     echo -e "${PURPLE}===============================================${NC}"
-    
+
     echo -e "\n${CYAN}🔍 最终连接测试:${NC}"
     if curl -f $ACCESS_URL/health &>/dev/null; then
         echo -e "   ${GREEN}✅ 外部访问测试通过${NC}"
@@ -1527,10 +1839,10 @@ EOF
         echo -e "   ${YELLOW}请检查域名解析和安全组配置${NC}"
         echo -e "   ${YELLOW}本地测试: curl http://127.0.0.1/health${NC}"
     fi
-    
+
     PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || echo "获取失败")
     echo -e "   🌍 服务器 IP: ${GREEN}$PUBLIC_IP${NC}"
-    
+
     if [ "$PUBLIC_IP" != "获取失败" ]; then
         echo -e "   📋 域名应解析到: ${GREEN}$PUBLIC_IP${NC}"
     fi
@@ -1538,30 +1850,31 @@ EOF
 
 cleanup_on_error() {
     log_error "部署过程中出现错误，正在清理..."
-    
+
     systemctl stop notes-backend 2>/dev/null || true
     systemctl stop notes-nginx-http 2>/dev/null || true
     systemctl stop notes-nginx-https 2>/dev/null || true
-    
+
     docker stop notes-nginx 2>/dev/null || true
     docker rm notes-nginx 2>/dev/null || true
-    
+
     echo -e "\n${YELLOW}错误日志查看命令：${NC}"
     echo -e "systemctl status notes-backend"
     echo -e "journalctl -u notes-backend -n 50"
     echo -e "docker logs notes-nginx"
-    
+
     echo -e "\n${YELLOW}如需帮助，请提供上述日志信息${NC}"
-    
+
     exit 1
 }
 
 main() {
     trap cleanup_on_error ERR
-    
+
     check_root
     show_welcome
     collect_user_input
+    collect_database_config
     detect_system
     install_basic_tools
     install_go
@@ -1569,6 +1882,8 @@ main() {
     install_certbot
     setup_firewall
     clone_project
+    setup_database
+
     compile_application
     create_configuration
     setup_ssl_certificates

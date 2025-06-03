@@ -443,3 +443,9 @@
 {"client_ip":"::1","error":"","latency":231792,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/stats","status_code":401,"time":"2025-06-03 18:53:44"}
 {"client_ip":"::1","error":"","latency":278000,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes?page=1\u0026limit=20\u0026sort=updated_at\u0026order=desc","status_code":401,"time":"2025-06-03 18:53:44"}
 {"client_ip":"::1","error":"","latency":597092653041,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/stats","status_code":500,"time":"2025-06-03 19:37:52"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 00:55:56"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 00:57:43"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 00:58:27"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 00:59:14"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 00:59:43"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 00:59:49"}

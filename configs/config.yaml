@@ -37,7 +37,7 @@ file:
 
 # 前端配置 - 使用 HTTPS
 frontend:
-  base_url: https://huage.api.withgo.cn # 你的 HTTPS 域名
+  base_url: https://xiaohua.tech
 
 backup:
   enabled: true

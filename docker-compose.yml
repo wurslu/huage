@@ -1,20 +1,46 @@
-# docker-compose.yml - 简化版本，专注 Vercel 数据库
+# docker-compose.yml - 支持HTTPS的完整配置
 version: "3.8"
 
 services:
-  # 应用服务
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: notes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LOCAL_DB_NAME:-notes_db}
+      POSTGRES_USER: ${LOCAL_DB_USER:-notes_user}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:-notes_password_2024}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "127.0.0.1:5432:5432"  # 只绑定本地
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - notes-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LOCAL_DB_USER:-notes_user} -d ${LOCAL_DB_NAME:-notes_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Notes Backend 应用
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: notes-backend
     restart: unless-stopped
-    ports:
-      - "9191:9191"
+    expose:
+      - "9191"  # 只暴露给内部网络
     environment:
       # 数据库配置
-      - DB_MODE=vercel
-      - VERCEL_POSTGRES_URL=${VERCEL_POSTGRES_URL}
+      - DB_MODE=local
+      - LOCAL_DB_HOST=postgres
+      - LOCAL_DB_PORT=5432
+      - LOCAL_DB_USER=${LOCAL_DB_USER:-notes_user}
+      - LOCAL_DB_PASSWORD=${LOCAL_DB_PASSWORD:-notes_password_2024}
+      - LOCAL_DB_NAME=${LOCAL_DB_NAME:-notes_db}
 
       # 应用配置
       - JWT_SECRET=${JWT_SECRET}
@@ -24,29 +50,29 @@ services:
 
       # 文件配置
       - UPLOAD_PATH=/app/uploads
-      - MAX_IMAGE_SIZE=${MAX_IMAGE_SIZE:-10485760}
-      - MAX_DOCUMENT_SIZE=${MAX_DOCUMENT_SIZE:-52428800}
-      - MAX_USER_STORAGE=${MAX_USER_STORAGE:-524288000}
+      - MAX_IMAGE_SIZE=10485760
+      - MAX_DOCUMENT_SIZE=52428800
+      - MAX_USER_STORAGE=524288000
+
+      # 日志配置
+      - LOG_LEVEL=info
+      - LOG_FILE=/app/logs/app.log
+
     volumes:
-      - ./uploads:/app/uploads
-      - ./logs:/app/logs
+      - uploads_data:/app/uploads
+      - logs_data:/app/logs
     networks:
       - notes-network
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://localhost:9191/health",
-        ]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9191/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  # Nginx 反向代理
+  # Nginx with SSL
   nginx:
     image: nginx:alpine
     container_name: notes-nginx
@@ -57,11 +83,36 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
-      - ./logs/nginx:/var/log/nginx
-    depends_on:
-      - app
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - logs_data:/var/log/nginx
     networks:
       - notes-network
+    depends_on:
+      - app
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Certbot for SSL certificates
+  certbot:
+    image: certbot/certbot
+    container_name: notes-certbot
+    restart: "no"
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  postgres_data:
+    driver: local
+  uploads_data:
+    driver: local
+  logs_data:
+    driver: local
 
 networks:
   notes-network:

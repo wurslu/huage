@@ -65,7 +65,7 @@ docker run -d \
   -e JWT_SECRET=your-super-secret-jwt-key-change-this-2024 \
   -e SERVER_PORT=9191 \
   -e GIN_MODE=release \
-  -e FRONTEND_BASE_URL=https://huage.api.xiaohua.tech \
+  -e FRONTEND_BASE_URL=https://xiaohua.tech/ \
   -p 127.0.0.1:9191:9191 \
   -v $(pwd)/uploads:/app/uploads \
   -v $(pwd)/logs:/app/logs \
@@ -97,4 +97,4 @@ echo "📝 最近日志："
 docker logs $CONTAINER_NAME --tail 10
 
 echo "🎉 部署完成！"
-echo "🌐 访问地址：https://huage.api.xiaohua.tech/health"
+echo "🌐 访问地址：https://xiaohua.tech/"

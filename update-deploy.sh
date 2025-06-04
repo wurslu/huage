@@ -21,7 +21,7 @@ fi
 # 2. 更新代码
 echo "📥 更新代码..."
 if [ -d ".git" ]; then
-    git pull origin main
+    git pull origin master
     echo "✅ Git 更新完成"
 else
     echo "⚠️  请手动更新代码文件"

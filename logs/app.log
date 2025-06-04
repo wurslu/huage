@@ -1,1 +1,25 @@
 {"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 13:40:38"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 15:02:54"}
+{"level":"info","msg":"日志系统初始化完成","time":"2025-06-04 15:02:57"}
+{"client_ip":"::1","error":"","latency":2810167,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/auth/me","status_code":200,"time":"2025-06-04 15:04:07"}
+{"client_ip":"::1","error":"","latency":2299167,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/categories","status_code":200,"time":"2025-06-04 15:04:08"}
+{"client_ip":"::1","error":"","latency":19331750,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes?page=1\u0026limit=20\u0026sort=updated_at\u0026order=desc","status_code":200,"time":"2025-06-04 15:04:08"}
+{"client_ip":"::1","error":"","latency":20311750,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/tags","status_code":200,"time":"2025-06-04 15:04:08"}
+{"client_ip":"::1","error":"","latency":36115291,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/stats","status_code":200,"time":"2025-06-04 15:04:08"}
+{"client_ip":"::1","error":"","latency":14847417,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/notes","status_code":200,"time":"2025-06-04 15:04:12"}
+{"client_ip":"::1","error":"","latency":1568500,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/categories","status_code":200,"time":"2025-06-04 15:04:12"}
+{"client_ip":"::1","error":"","latency":3458459,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes?page=1\u0026limit=20\u0026sort=updated_at\u0026order=desc","status_code":200,"time":"2025-06-04 15:04:12"}
+{"client_ip":"::1","error":"","latency":3326125,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/stats","status_code":200,"time":"2025-06-04 15:04:12"}
+{"client_ip":"::1","error":"","latency":3362500,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/tags","status_code":200,"time":"2025-06-04 15:04:12"}
+{"client_ip":"::1","error":"","latency":1706458,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/4/attachments","status_code":200,"time":"2025-06-04 15:04:14"}
+{"client_ip":"::1","error":"","latency":2488333,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/4","status_code":200,"time":"2025-06-04 15:04:14"}
+{"client_ip":"::1","error":"","latency":5895542,"level":"info","method":"PUT","msg":"HTTP Request","path":"/api/notes/4","status_code":200,"time":"2025-06-04 15:04:16"}
+{"client_ip":"::1","error":"","latency":2684583,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/4","status_code":200,"time":"2025-06-04 15:04:16"}
+{"client_ip":"::1","error":"","latency":2749292,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes?page=1\u0026limit=20\u0026sort=updated_at\u0026order=desc","status_code":200,"time":"2025-06-04 15:04:16"}
+{"client_ip":"::1","error":"","latency":2172000,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/tags","status_code":200,"time":"2025-06-04 15:04:16"}
+{"client_ip":"::1","error":"","latency":3230708,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/stats","status_code":200,"time":"2025-06-04 15:04:16"}
+{"client_ip":"::1","error":"","latency":7975375,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/categories","status_code":200,"time":"2025-06-04 15:04:16"}
+{"client_ip":"::1","error":"","latency":2051292,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/4/share","status_code":404,"time":"2025-06-04 15:04:19"}
+{"client_ip":"::1","error":"","latency":5733834,"level":"info","method":"POST","msg":"HTTP Request","path":"/api/notes/4/share","status_code":200,"time":"2025-06-04 15:04:21"}
+{"client_ip":"::1","error":"","latency":2130292,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/4/share","status_code":200,"time":"2025-06-04 15:04:21"}
+{"client_ip":"::1","error":"","latency":2604458,"level":"info","method":"GET","msg":"HTTP Request","path":"/api/notes/4","status_code":200,"time":"2025-06-04 15:04:21"}

@@ -7,7 +7,6 @@ echo "🚀 开始部署 Notes 后端服务..."
 CONTAINER_NAME="notes-backend"
 IMAGE_NAME="notes-backend"
 NETWORK_NAME="notes-network"
-BACKUP_DIR="backup-$(date +%Y%m%d-%H%M%S)"
 
 echo "📦 备份当前版本..."
 if [ "$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
@@ -15,33 +14,7 @@ if [ "$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
     echo "✅ 备份完成"
 fi
 
-echo "📥 更新代码..."
-if [ -d ".git" ]; then
-    echo "💾 备份配置文件..."
-    cp .env .env.backup.$(date +%Y%m%d-%H%M%S) 2>/dev/null || true
-    cp configs/config.yaml configs/config.yaml.backup.$(date +%Y%m%d-%H%M%S) 2>/dev/null || true
-    cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d-%H%M%S) 2>/dev/null || true
-    
-    echo "🔄 处理本地修改..."
-    git stash push -m "自动部署备份-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
-    
-    echo "⬇️ 拉取最新代码..."
-    git pull origin master
-    
-    echo "🔧 恢复生产配置..."
-    latest_env_backup=$(ls -t .env.backup.* 2>/dev/null | head -1)
-    latest_config_backup=$(ls -t configs/config.yaml.backup.* 2>/dev/null | head -1)
-    latest_compose_backup=$(ls -t docker-compose.yml.backup.* 2>/dev/null | head -1)
-    
-    [ -n "$latest_env_backup" ] && cp "$latest_env_backup" .env && echo "✅ 恢复 .env 配置"
-    [ -n "$latest_config_backup" ] && cp "$latest_config_backup" configs/config.yaml && echo "✅ 恢复 config.yaml 配置"
-    
-    echo "✅ Git 更新完成"
-else
-    echo "⚠️  请手动更新代码文件"
-fi
-
-echo "⏹️  停止现有容器..."
+echo "⏹️ 停止现有容器..."
 if [ "$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
     docker stop $CONTAINER_NAME
     echo "✅ 容器已停止"
@@ -113,6 +86,13 @@ if [ "$health_check_passed" = true ]; then
     echo "🌐 前端访问地址：https://www.xiaohua.tech"
     echo "🔧 后端健康检查：https://huage.api.xiaohua.tech/health"
     echo "📊 容器状态：$(docker ps --format 'table {{.Names}}\t{{.Status}}' | grep $CONTAINER_NAME)"
+    
+    echo ""
+    echo "📋 服务信息："
+    echo "   容器名称：$CONTAINER_NAME"
+    echo "   网络：$NETWORK_NAME"
+    echo "   端口：127.0.0.1:9191 -> 9191"
+    echo "   数据目录：$(pwd)/uploads, $(pwd)/logs"
 else
     echo ""
     echo "❌ 部署可能有问题，服务健康检查失败"
@@ -120,9 +100,13 @@ else
     echo "   docker logs $CONTAINER_NAME"
     echo "🔧 手动测试命令："
     echo "   curl http://127.0.0.1:9191/health"
+    echo "🐛 调试步骤："
+    echo "   1. 检查容器状态：docker ps -a | grep $CONTAINER_NAME"
+    echo "   2. 查看完整日志：docker logs $CONTAINER_NAME"
+    echo "   3. 进入容器调试：docker exec -it $CONTAINER_NAME sh"
     exit 1
 fi
 
-echo "🧹 清理旧备份文件..."
-find . -name "*.backup.*" -type f -printf '%T@ %p\n' | sort -rn | tail -n +6 | cut -d' ' -f2- | xargs rm -f 2>/dev/null || true
+echo "🧹 清理旧备份镜像..."
+docker images | grep "$IMAGE_NAME.*backup" | awk '{print $1":"$2}' | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
 echo "✅ 清理完成"
